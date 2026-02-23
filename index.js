@@ -3,7 +3,10 @@ const { Client, GatewayIntentBits, EmbedBuilder, PermissionsBitField } = require
 const fs = require("fs");
 const express = require("express");
 
-const TOKEN = process.env.TOKEN;
+const TOKEN = process.env.DISCORD_TOKEN;
+console.log("TOKEN:", TOKEN ? "FOUND" : "MISSING");
+
+client.login(TOKEN);
 
 // ====== CONFIG ======
 const ROLE_INTERN = "1467725396433834149";
