@@ -6,9 +6,9 @@ const express = require("express");
 const TOKEN = process.env.TOKEN;
 
 // ====== CONFIG ======
-const ROLE_INTERN = "ROLE_THUCTAP_ID";
-const ROLE_EMPLOYEE = "ROLE_NHANVIEN_ID";
-const PROMOTE_CHANNEL = "KENH_THANGCAP_ID";
+const ROLE_INTERN = "1467725396433834149";
+const ROLE_EMPLOYEE = "1467724655766012129";
+const PROMOTE_CHANNEL = "1472545636980101313";
 const TIMEZONE = "Asia/Ho_Chi_Minh";
 // ====================
 
