@@ -6,18 +6,17 @@ const http = require("http");
 
 const TOKEN = process.env.TOKEN;
 
-const RESET_ROLES = ["1475815959616032883"]; // role quản lý
-const TRAINEE_ROLE = "1467725396433834149"; // role thực tập
-const EMPLOYEE_ROLE = "1467724655766012129"; // role nhân viên
-const CONGRATS_CHANNEL = "1467729036066295820"; // kênh chúc mừng
+const RESET_ROLES = ["1475815959616032883"];
+const TRAINEE_ROLE = "1467725396433834149";
+const EMPLOYEE_ROLE = "1467724655766012129";
+const CONGRATS_CHANNEL = "1467729036066295820";
 
-const GTA_KEYWORDS = ["gta5", "gta5vn"];
-const AFK_LIMIT = 10 * 60 * 1000; // 10 phút
-const TRAIN_TARGET = 60 * 60 * 1000; // 60h
+const AFK_LIMIT = 10 * 60 * 1000;
+const TRAIN_TARGET = 60 * 60 * 1000;
 
 const DATA_FILE = "duty.json";
 
-/* ================= RENDER FIX ================= */
+/* ================= RENDER ================= */
 
 http.createServer((req, res) => {
   res.write("OK");
@@ -74,25 +73,18 @@ function userRoot(uid){
   return db[uid];
 }
 
-/* ================= GTA DETECT ================= */
+/* ================= GTA DETECT (FIXED) ================= */
 
 function isPlayingGTA(member) {
-  if (!member?.presence?.activities?.length) return false;
+  if (!member || !member.presence || !member.presence.activities) return false;
 
   return member.presence.activities.some(a => {
-    const n = (a.name || "").toLowerCase();
-    const d = (a.details || "").toLowerCase();
-    const s = (a.state || "").toLowerCase();
-
-    return (
-      n.includes("fivem") ||
-      n.includes("gta") ||
-      d.includes("gta") ||
-      d.includes("gta5vn") ||
-      s.includes("gta")
-    );
+    if (!a.name) return false;
+    const name = a.name.toLowerCase();
+    return name.includes("gta") || name.includes("fivem");
   });
 }
+
 /* ================= EMBED ================= */
 
 function buildEmbed(member, data, root) {
@@ -148,9 +140,10 @@ client.on("interactionCreate", async i => {
   if (!i.isChatInputCommand()) return;
 
   const member = await i.guild.members.fetch({
-  user: i.user.id,
-  force: true
-});
+    user: i.user.id,
+    force: true
+  });
+
   const data = getUser(member.id);
   const root = userRoot(member.id);
 
@@ -158,7 +151,10 @@ client.on("interactionCreate", async i => {
   if (i.commandName === "onduty") {
 
     if (!isPlayingGTA(member)) {
-      return i.reply({ content: "❌ Bạn chưa vào game!", ephemeral: true });
+      return i.reply({
+        content: "❌ Bạn chưa vào game GTA/FiveM!",
+        ephemeral: true
+      });
     }
 
     const plate = i.options.getString("bienso");
@@ -245,7 +241,6 @@ client.on("presenceUpdate", async (oldP, newP) => {
 
   if (!data.active) return;
 
-  /* OUT GAME AUTO OFF */
   if (!isPlayingGTA(member)) {
     const end = now();
     data.sessions.push({ start: data.start, end });
@@ -261,23 +256,20 @@ client.on("presenceUpdate", async (oldP, newP) => {
     return;
   }
 
- /* TREO 10P */
-if (now() - root.lastPresence > AFK_LIMIT) {
-  const end = now();
-  data.sessions.push({ start: data.start, end });
-  data.total += end - data.start;
-  data.active = false;
-  data.start = null;
-  save();
+  if (now() - root.lastPresence > AFK_LIMIT) {
+    const end = now();
+    data.sessions.push({ start: data.start, end });
+    data.total += end - data.start;
+    data.active = false;
+    data.start = null;
+    save();
 
-  member.send("⚠️ Bạn đã bị tự động offduty do treo 10 phút").catch(()=>{});
-  return;
-}
+    member.send("⚠️ Bạn đã bị tự động offduty do treo 10 phút").catch(()=>{});
+    return;
+  }
 
-/* UPDATE ACTIVITY TIME */
-root.lastPresence = now();
+  root.lastPresence = now();
 
-  /* TRAINEE COMPLETE */
   if (member.roles.cache.has(TRAINEE_ROLE) &&
       root.traineeTotal >= TRAIN_TARGET &&
       !member.roles.cache.has(EMPLOYEE_ROLE)) {
