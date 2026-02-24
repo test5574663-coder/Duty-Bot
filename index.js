@@ -67,11 +67,21 @@ function getUser(guildId, userId) {
 }
 
 // ===== CHECK GTA5VN STATUS =====
-function hasGTA5VN(member) {
-  if (!member.presence) return false;
-  return member.presence.activities.some(a =>
-    a.name && a.name.toLowerCase().includes("gta5vn")
-  );
+function isPlayingGTA(member) {
+  if (!member.presence || !member.presence.activities) return false;
+
+  return member.presence.activities.some(a => {
+    const name = (a.name || "").toLowerCase();
+    const details = (a.details || "").toLowerCase();
+    const state = (a.state || "").toLowerCase();
+
+    return (
+      name.includes("gta") ||
+      name.includes("fivem") ||
+      details.includes("gta5vn") ||
+      state.includes("gta5vn")
+    );
+  });
 }
 
 // ===== EMBED =====
