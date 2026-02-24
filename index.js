@@ -1,24 +1,20 @@
-require("dotenv").config();
-const fs = require("fs");
-const express = require("express");
 const {
   Client,
   GatewayIntentBits,
   EmbedBuilder,
-  PermissionsBitField
+  PermissionsBitField,
+  ActivityType
 } = require("discord.js");
+const fs = require("fs");
+const express = require("express");
 
 const TOKEN = process.env.TOKEN;
 
-// ====== CONFIG ======
-const ROLE_INTERN = "1467725396433834149";
-const ROLE_EMPLOYEE = "1467724655766012129";
-const PROMOTE_CHANNEL = "1472545636980101313";
+// ===== CONFIG =====
 const TIMEZONE = "Asia/Ho_Chi_Minh";
-const GAME_NAME = "GTA5VN"; // tên game cần check
-// ====================
+const GAME_NAME = "GTA5VN";
+// ==================
 
-// 🔴 PHẢI có Presence intent để đọc game
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -27,18 +23,11 @@ const client = new Client({
   ]
 });
 
-// ===== DATABASE =====
 let db = {};
-if (fs.existsSync("data.json")) {
-  db = JSON.parse(fs.readFileSync("data.json"));
-}
+if (fs.existsSync("data.json")) db = JSON.parse(fs.readFileSync("data.json"));
 
 function save() {
   fs.writeFileSync("data.json", JSON.stringify(db, null, 2));
-}
-
-function today() {
-  return new Date().toLocaleDateString("vi-VN", { timeZone: TIMEZONE });
 }
 
 function now() {
@@ -46,11 +35,11 @@ function now() {
 }
 
 function formatTime(d) {
-  return new Date(d).toLocaleTimeString("vi-VN", {
+  return new Intl.DateTimeFormat("vi-VN", {
+    timeZone: TIMEZONE,
     hour: "2-digit",
-    minute: "2-digit",
-    timeZone: TIMEZONE
-  });
+    minute: "2-digit"
+  }).format(new Date(d));
 }
 
 function secondsToHMS(sec) {
@@ -67,182 +56,175 @@ function getUser(guildId, userId) {
       today: 0,
       start: null,
       plate: "",
-      date: today(),
-      logs: [] // lưu mốc giờ
+      logs: [],
+      messageId: null,
+      channelId: null
     };
   }
   return db[guildId][userId];
 }
 
-// ===== EMBED =====
+function isPlayingGame(member) {
+  if (!member.presence) return false;
+  return member.presence.activities.some(
+    a => a.type === ActivityType.Playing && a.name.includes(GAME_NAME)
+  );
+}
+
 function buildEmbed(member, data) {
-  let status = data.start ? "🟢 Đang trực" : "🔴 Đã off";
+  let status = data.start ? "🟢 Đang trực" : "🔴 Off duty";
   let color = data.start ? 0x00ff00 : 0xff0000;
 
-  let history = "Chưa có";
-  if (data.logs.length > 0) {
-    history = data.logs.map(x => `• ${x}`).join("\n");
+  let logText = data.logs.length
+    ? data.logs.map(l => `• ${l}`).join("\n")
+    : "Chưa có";
+
+  if (data.start) {
+    logText += `\n• ${formatTime(data.start)} → ...`;
   }
 
   return new EmbedBuilder()
     .setTitle("📋 BẢNG ONDUTY")
     .setColor(color)
     .addFields(
-      { name: "Tên", value: `<@${member.id}>`, inline: true },
-      { name: "Biển số", value: data.plate || "Chưa ghi", inline: true },
-      { name: "Ngày", value: data.date, inline: true },
-      { name: "Tổng hôm nay", value: secondsToHMS(data.today), inline: true },
-      { name: "Tổng tích lũy", value: secondsToHMS(data.total), inline: true },
-      { name: "Trạng thái", value: status, inline: true },
-      { name: "Mốc thời gian", value: history }
+      { name: "Nhân sự", value: `<@${member.id}>` },
+      { name: "Biển số", value: data.plate || "Chưa ghi" },
+      { name: "Trạng thái", value: status },
+      { name: "Ca trực", value: logText },
+      { name: "Hôm nay", value: secondsToHMS(data.today) },
+      { name: "Tổng", value: secondsToHMS(data.total) }
     )
     .setTimestamp();
 }
 
-async function sendOrUpdate(interaction, member, data) {
-  const channel = interaction.channel;
+async function updateMessage(interaction, member, data) {
+  let channel =
+    interaction.channel ||
+    member.guild.channels.cache.get(data.channelId);
+
+  if (!channel) return;
 
   if (data.messageId) {
     try {
-      const msg = await channel.messages.fetch(data.messageId);
+      let msg = await channel.messages.fetch(data.messageId);
       await msg.edit({ embeds: [buildEmbed(member, data)] });
       return;
     } catch {}
   }
 
-  const msg = await channel.send({ embeds: [buildEmbed(member, data)] });
+  let msg = await channel.send({ embeds: [buildEmbed(member, data)] });
   data.messageId = msg.id;
+  data.channelId = channel.id;
 }
 
-// ===== CHECK GAME =====
-function isPlayingGame(presence) {
-  if (!presence || !presence.activities) return false;
-  return presence.activities.some(a =>
-    a.name?.toLowerCase().includes(GAME_NAME.toLowerCase())
-  );
+function closeDuty(member, data) {
+  if (!data.start) return;
+
+  let end = now();
+  let diff = Math.floor((end - new Date(data.start)) / 1000);
+
+  data.today += diff;
+  data.total += diff;
+
+  data.logs.push(`${formatTime(data.start)} → ${formatTime(end)}`);
+  data.start = null;
 }
 
-// ===== COMMAND =====
+client.on("presenceUpdate", async (oldP, newP) => {
+  if (!newP.member) return;
+
+  let member = newP.member;
+  let data = getUser(member.guild.id, member.id);
+
+  if (data.start && !isPlayingGame(member)) {
+    closeDuty(member, data);
+    save();
+
+    let ch = member.guild.channels.cache.get(data.channelId);
+    if (ch) {
+      ch.send(`⛔ ${member} đã out game → tự off duty`);
+      updateMessage({ channel: ch }, member, data);
+    }
+  }
+});
+
 client.on("interactionCreate", async interaction => {
   if (!interaction.isChatInputCommand()) return;
 
   const member = interaction.member;
   const data = getUser(member.guild.id, member.id);
 
-  // reset ngày mới
-  if (data.date !== today()) {
-    data.today = 0;
-    data.start = null;
-    data.logs = [];
-    data.date = today();
-  }
-
-  // ===== ONDUTY =====
   if (interaction.commandName === "onduty") {
-    if (data.start)
-      return interaction.reply({ content: "Bạn đang onduty!", ephemeral: true });
+    if (!isPlayingGame(member))
+      return interaction.reply({
+        content: "❌ Bạn chưa vào game!",
+        ephemeral: true
+      });
 
-    // check game
-    if (!isPlayingGame(member.presence))
-      return interaction.reply({ content: "❌ Bạn chưa vào game!", ephemeral: true });
+    if (data.start)
+      return interaction.reply({
+        content: "Bạn đang onduty rồi",
+        ephemeral: true
+      });
 
     let plate = interaction.options.getString("bienso");
     if (plate) data.plate = plate;
 
     data.start = now();
 
-    await interaction.reply({ content: "✅ Bắt đầu onduty", ephemeral: true });
-    await sendOrUpdate(interaction, member, data);
+    await interaction.reply({
+      content: "✅ Bắt đầu onduty",
+      ephemeral: true
+    });
+
+    await updateMessage(interaction, member, data);
     save();
   }
 
-  // ===== OFFDUTY =====
   if (interaction.commandName === "offduty") {
     if (!data.start)
-      return interaction.reply({ content: "Bạn chưa onduty!", ephemeral: true });
+      return interaction.reply({
+        content: "Bạn chưa onduty",
+        ephemeral: true
+      });
 
-    let end = now();
-    let diff = Math.floor((end - new Date(data.start)) / 1000);
+    closeDuty(member, data);
 
-    data.today += diff;
-    data.total += diff;
+    await interaction.reply({
+      content: "⛔ Off duty",
+      ephemeral: true
+    });
 
-    // lưu mốc giờ
-    data.logs.push(`${formatTime(data.start)} → ${formatTime(end)}`);
-
-    data.start = null;
-
-    await interaction.reply({ content: "⛔ Offduty", ephemeral: true });
-    await sendOrUpdate(interaction, member, data);
+    await updateMessage(interaction, member, data);
     save();
   }
 
-  // ===== RESET =====
   if (interaction.commandName === "resetduty") {
     if (!member.permissions.has(PermissionsBitField.Flags.ManageGuild))
-      return interaction.reply({ content: "Không có quyền", ephemeral: true });
+      return interaction.reply({
+        content: "Không có quyền",
+        ephemeral: true
+      });
 
     data.today = 0;
     data.total = 0;
     data.start = null;
     data.logs = [];
 
-    await interaction.reply({ content: "♻️ Reset duty", ephemeral: true });
-    await sendOrUpdate(interaction, member, data);
-    save();
-  }
+    await interaction.reply({
+      content: "♻️ Reset duty",
+      ephemeral: true
+    });
 
-  // ===== FORCE OFF (ADMIN) =====
-  if (interaction.commandName === "forceoff") {
-    if (!member.permissions.has(PermissionsBitField.Flags.ManageGuild))
-      return interaction.reply({ content: "Không có quyền", ephemeral: true });
-
-    if (!data.start)
-      return interaction.reply({ content: "Người này chưa onduty", ephemeral: true });
-
-    let end = now();
-    let diff = Math.floor((end - new Date(data.start)) / 1000);
-
-    data.today += diff;
-    data.total += diff;
-    data.logs.push(`${formatTime(data.start)} → ${formatTime(end)}`);
-    data.start = null;
-
-    await interaction.reply({ content: "⛔ Đã force off", ephemeral: true });
-    await sendOrUpdate(interaction, member, data);
+    await updateMessage(interaction, member, data);
     save();
   }
 });
 
-// ===== AUTO OFF KHI OUT GAME =====
-client.on("presenceUpdate", (oldP, newP) => {
-  if (!newP?.member) return;
-
-  const guildId = newP.guild.id;
-  const userId = newP.member.id;
-  const data = db[guildId]?.[userId];
-  if (!data || !data.start) return;
-
-  // nếu không còn chơi game → off
-  if (!isPlayingGame(newP)) {
-    let end = now();
-    let diff = Math.floor((end - new Date(data.start)) / 1000);
-
-    data.today += diff;
-    data.total += diff;
-    data.logs.push(`${formatTime(data.start)} → ${formatTime(end)}`);
-    data.start = null;
-    save();
-  }
-});
-
-client.once("ready", () => {
-  console.log("Bot ready");
-});
-
+client.once("ready", () => console.log("Bot ready"));
 client.login(TOKEN);
 
-// keep alive
+// keep alive render
 const app = express();
 app.get("/", (req, res) => res.send("Bot alive"));
 app.listen(3000);
