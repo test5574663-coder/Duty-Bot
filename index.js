@@ -1,84 +1,14 @@
-
 const { Client, GatewayIntentBits, EmbedBuilder } = require("discord.js");
 const fs = require("fs");
 
 const TOKEN = process.env.TOKEN;
-const RESET_ROLES = ["1475815959616032883"]; // role được phép reset/force off
 
-const DATA_FILE = "duty.json";
-let db = {};
-
-if (fs.existsSync(DATA_FILE)) {
-  db = JSON.parse(fs.readFileSync(DATA_FILE));
-}
-
-function save() {
-  fs.writeFileSync(DATA_FILE, JSON.stringify(db, null, 2));
-}
-
-function now() {
-  return Date.now();
-}
-
-function fmtTime(ts) {
-  const d = new Date(ts);
-  return `${d.getHours()}h${d.getMinutes()}`;
-}
-
-function isPlayingGTA(member) {
-  if (!member?.presence?.activities) return false;
-
-  return member.presence.activities.some(a => {
-    const name = (a.name || "").toLowerCase();
-    const details = (a.details || "").toLowerCase();
-    const state = (a.state || "").toLowerCase();
-
-    return (
-      name.includes("gta5") ||
-      name.includes("gta5vn") ||
-      details.includes("gta5") ||
-      details.includes("gta5vn") ||
-      state.includes("gta5") ||
-      state.includes("gta5vn")
-    );
-  });
-}
-
-function getUser(id) {
-  if (!db[id]) {
-    db[id] = {
-      active: false,
-      start: null,
-      sessions: [],
-      total: 0
-    };
-  }
-  return db[id];
-}
-
-function buildEmbed(member, data) {
-  let desc = "";
-
-  data.sessions.forEach(s => {
-    desc += `• ${fmtTime(s.start)} → ${fmtTime(s.end)}\n`;
-  });
-
-  if (data.active) {
-    desc += `• ${fmtTime(data.start)} → ...`;
-  }
-
-  const color = data.active ? 0x00ff88 : 0xff0000;
-
-  return new EmbedBuilder()
-    .setTitle("BẢNG ONDUTY")
-    .setColor(color)
-    .addFields(
-      { name: "Tên", value: `<@${member.id}>` },
-      { name: "Tổng", value: Math.floor(data.total/60000) + " phút" },
-      { name: "Trạng thái", value: data.active ? "Đang trực" : "Off duty" },
-      { name: "Timeline", value: desc || "Chưa có" }
-    );
-}
+// ====== CONFIG ======
+const RESET_ROLES = ["1475815959616032883"];
+const INTERN_ROLE = "1467725396433834149";
+const EMPLOYEE_ROLE = "1467724655766012129";
+const PROMOTE_CHANNEL = "1467729036066295820";
+const GAME_NAME = "GTA5VN";
 
 const client = new Client({
   intents: [
@@ -88,92 +18,192 @@ const client = new Client({
   ]
 });
 
-client.on("ready", () => {
-  console.log("Bot ready");
-});
+let db = {};
+if (fs.existsSync("data.json")) db = JSON.parse(fs.readFileSync("data.json"));
 
-client.on("interactionCreate", async i => {
-  if (!i.isChatInputCommand()) return;
+function save() {
+  fs.writeFileSync("data.json", JSON.stringify(db, null, 2));
+}
 
-  const member = i.member;
-  const data = getUser(member.id);
+function now() {
+  return new Date();
+}
 
-  if (i.commandName === "onduty") {
-    if (!isPlayingGTA(member)) {
-      return i.reply({ content: "❌ Bạn chưa vào game!", ephemeral: true });
-    }
+function formatDate(d) {
+  return d.toLocaleDateString("vi-VN", { timeZone: "Asia/Ho_Chi_Minh" });
+}
 
-    if (!data.active) {
-      data.active = true;
-      data.start = now();
-      save();
-    }
+function formatHM(d) {
+  return `${d.getHours()}h${d.getMinutes()}`;
+}
 
-    return i.reply({ embeds: [buildEmbed(member, data)] });
-  }
+function secToHM(sec) {
+  let h = Math.floor(sec / 3600);
+  let m = Math.floor((sec % 3600) / 60);
+  return `${h}h${m}`;
+}
 
-  if (i.commandName === "offduty") {
-    if (data.active) {
-      const end = now();
-      data.sessions.push({ start: data.start, end });
-      data.total += end - data.start;
-      data.active = false;
-      data.start = null;
-      save();
-    }
+function isPlaying(member) {
+  return member.presence?.activities?.some(a => a.name === GAME_NAME);
+}
 
-    return i.reply({ embeds: [buildEmbed(member, data)] });
-  }
-
-  if (i.commandName === "resetduty") {
-    if (!member.roles.cache.some(r => RESET_ROLES.includes(r.id))) {
-      return i.reply({ content: "❌ Không có quyền", ephemeral: true });
-    }
-
-    db[member.id] = {
-      active: false,
-      start: null,
+function getUser(guild, id) {
+  if (!db[guild]) db[guild] = {};
+  if (!db[guild][id]) {
+    db[guild][id] = {
       sessions: [],
-      total: 0
+      today: 0,
+      totalIntern: 0,
+      start: null,
+      plate: "",
+      msg: null,
+      lastActive: Date.now()
     };
+  }
+  return db[guild][id];
+}
+
+async function updateEmbed(interaction, member, data, off = false) {
+  const date = formatDate(new Date());
+
+  let timeline = data.sessions.map(s =>
+    `${formatHM(new Date(s.start))}→${formatHM(new Date(s.end))}`
+  ).join("\n") || "Chưa có";
+
+  let embed = new EmbedBuilder()
+    .setTitle("📋 BẢNG ONDUTY")
+    .setColor(off ? 0xff0000 : 0x00ff00)
+    .setDescription(
+`Tên Nhân Sự : ${member.user.username}
+Biển Số : ${data.plate || "Chưa ghi"}
+Thời Gian Onduty :
+${timeline}
+Ngày Onduty : ${date}
+Tổng Thời Gian Onduty : ${secToHM(data.today)}
+Trạng Thái Hoạt Động : ${off ? "🔴 Off duty" : "🟢 On duty"}`
+    )
+    .setTimestamp();
+
+  if (member.roles.cache.has(INTERN_ROLE)) {
+    embed.addFields({
+      name: "Tổng thời gian thực tập",
+      value: secToHM(data.totalIntern),
+      inline: false
+    });
+  }
+
+  if (!data.msg) {
+    let m = await interaction.channel.send({ embeds: [embed] });
+    data.msg = m.id;
+  } else {
+    let m = await interaction.channel.messages.fetch(data.msg).catch(() => null);
+    if (m) await m.edit({ embeds: [embed] });
+  }
+}
+
+async function checkPromote(member, data) {
+  if (!member.roles.cache.has(INTERN_ROLE)) return;
+  if (data.totalIntern < 60 * 3600) return;
+
+  if (!member.roles.cache.has(EMPLOYEE_ROLE)) {
+    await member.roles.add(EMPLOYEE_ROLE);
+    let ch = member.guild.channels.cache.get(PROMOTE_CHANNEL);
+    if (ch) ch.send(`🎉 Chúc mừng ${member} đã đủ 60h và lên nhân viên!`);
+  }
+}
+
+// ===== COMMANDS =====
+client.on("interactionCreate", async interaction => {
+  if (!interaction.isChatInputCommand()) return;
+
+  const member = interaction.member;
+  const guild = interaction.guild.id;
+  const data = getUser(guild, member.id);
+
+  if (interaction.commandName === "onduty") {
+
+    if (!isPlaying(member))
+      return interaction.reply({ content: "❌ Bạn chưa vào game!", ephemeral: true });
+
+    if (data.start)
+      return interaction.reply({ content: "Bạn đang onduty!", ephemeral: true });
+
+    const plate = interaction.options.getString("bienso");
+    if (plate) data.plate = plate;
+
+    data.start = Date.now();
+    data.lastActive = Date.now();
+
+    await interaction.reply({ content: "🟢 Bắt đầu onduty", ephemeral: true });
+    await updateEmbed(interaction, member, data, false);
     save();
-
-    return i.reply({ content: "✅ Đã reset duty", ephemeral: true });
   }
 
-  if (i.commandName === "forceoff") {
-    if (!member.roles.cache.some(r => RESET_ROLES.includes(r.id))) {
-      return i.reply({ content: "❌ Không có quyền", ephemeral: true });
-    }
+  if (interaction.commandName === "offduty") {
 
-    if (data.active) {
-      const end = now();
-      data.sessions.push({ start: data.start, end });
-      data.total += end - data.start;
-      data.active = false;
-      data.start = null;
-      save();
-    }
+    if (!data.start)
+      return interaction.reply({ content: "Bạn chưa onduty!", ephemeral: true });
 
-    return i.reply({ content: "⛔ Đã đóng onduty", ephemeral: true });
-  }
-});
+    let end = Date.now();
+    let sec = Math.floor((end - data.start) / 1000);
 
-client.on("presenceUpdate", (oldP, newP) => {
-  const member = newP?.member;
-  if (!member) return;
-
-  const data = getUser(member.id);
-  if (!data.active) return;
-
-  if (!isPlayingGTA(member)) {
-    const end = now();
     data.sessions.push({ start: data.start, end });
-    data.total += end - data.start;
-    data.active = false;
+    data.today += sec;
+    data.totalIntern += sec;
     data.start = null;
+
+    await interaction.reply({ content: "🔴 Off duty", ephemeral: true });
+    await updateEmbed(interaction, member, data, true);
+    await checkPromote(member, data);
+    save();
+  }
+
+  if (interaction.commandName === "resetduty") {
+
+    if (!member.roles.cache.some(r => RESET_ROLES.includes(r.id)))
+      return interaction.reply({ content: "Không có quyền", ephemeral: true });
+
+    data.sessions = [];
+    data.today = 0;
+    data.start = null;
+
+    await interaction.reply({ content: "Đã reset duty", ephemeral: true });
+    await updateEmbed(interaction, member, data, true);
     save();
   }
 });
+
+// ===== AUTO OFF GAME / TREO =====
+setInterval(() => {
+  for (let g in db) {
+    for (let u in db[g]) {
+      let data = db[g][u];
+      if (!data.start) continue;
+
+      let guild = client.guilds.cache.get(g);
+      if (!guild) continue;
+
+      let member = guild.members.cache.get(u);
+      if (!member) continue;
+
+      if (!isPlaying(member)) {
+        let end = Date.now();
+        let sec = Math.floor((end - data.start) / 1000);
+
+        data.sessions.push({ start: data.start, end });
+        data.today += sec;
+        data.totalIntern += sec;
+        data.start = null;
+
+        save();
+      }
+
+      if (Date.now() - data.lastActive > 10 * 60 * 1000) {
+        member.send("⚠️ Bạn treo onduty 10 phút!");
+        data.lastActive = Date.now();
+      }
+    }
+  }
+}, 60000);
 
 client.login(TOKEN);
