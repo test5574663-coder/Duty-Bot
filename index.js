@@ -77,14 +77,23 @@ function userRoot(uid){
 /* ================= GTA DETECT ================= */
 
 function isPlayingGTA(member) {
-  if (!member?.presence?.activities) return false;
+  if (!member || !member.presence || !member.presence.activities) return false;
 
-  return member.presence.activities.some(a => {
-    const txt = `${a.name} ${a.details} ${a.state}`.toLowerCase();
-    return GTA_KEYWORDS.some(k => txt.includes(k));
+  return member.presence.activities.some(act => {
+    const name = (act.name || "").toLowerCase();
+    const details = (act.details || "").toLowerCase();
+    const state = (act.state || "").toLowerCase();
+
+    return (
+      name.includes("gta") ||
+      name.includes("fivem") ||
+      details.includes("gta") ||
+      details.includes("gta5vn") ||
+      state.includes("gta") ||
+      state.includes("gta5vn")
+    );
   });
 }
-
 /* ================= EMBED ================= */
 
 function buildEmbed(member, data, root) {
