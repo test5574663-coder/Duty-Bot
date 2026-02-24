@@ -3,7 +3,7 @@ const { Client, GatewayIntentBits, EmbedBuilder, PermissionsBitField } = require
 const fs = require("fs");
 const express = require("express");
 
-const TOKEN = process.env.DISCORD_TOKEN;
+const TOKEN = process.env.TOKEN;
 console.log("TOKEN:", TOKEN ? "FOUND" : "MISSING");
 
 client.login(TOKEN);
