@@ -1,12 +1,11 @@
-
-const { Client, GatewayIntentBits, EmbedBuilder, PermissionsBitField } = require("discord.js");
-const fs = require("fs");
-const express = require("express");
-
 const TOKEN = process.env.TOKEN;
 console.log("TOKEN:", TOKEN ? "FOUND" : "MISSING");
 
-client.login(TOKEN);
+const client = new Client({
+  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers]
+});
+
+client.login(TOKEN);   // ✅ đúng vị trí
 
 // ====== CONFIG ======
 const ROLE_INTERN = "1467725396433834149";
