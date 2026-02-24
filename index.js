@@ -6,10 +6,10 @@ const http = require("http");
 
 const TOKEN = process.env.TOKEN;
 
-const RESET_ROLES = ["RESET_ROLE_ID"]; // role quản lý
-const TRAINEE_ROLE = "TRAINEE_ROLE_ID"; // role thực tập
-const EMPLOYEE_ROLE = "EMPLOYEE_ROLE_ID"; // role nhân viên
-const CONGRATS_CHANNEL = "CHANNEL_ID"; // kênh chúc mừng
+const RESET_ROLES = ["1475815959616032883"]; // role quản lý
+const TRAINEE_ROLE = "1467725396433834149"; // role thực tập
+const EMPLOYEE_ROLE = "1467724655766012129"; // role nhân viên
+const CONGRATS_CHANNEL = "1467729036066295820"; // kênh chúc mừng
 
 const GTA_KEYWORDS = ["gta5", "gta5vn"];
 const AFK_LIMIT = 10 * 60 * 1000; // 10 phút
