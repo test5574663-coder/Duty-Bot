@@ -137,7 +137,7 @@ client.on("interactionCreate", async interaction => {
 
     if (!hasGTA5VN(member))
       return interaction.reply({
-        content: "❌ Bạn phải đang chơi GTA5VN mới được onduty!",
+        content: "❌ Chưa vào game đã Onduty à thẳng daden này?!",
         ephemeral: true
       });
 
