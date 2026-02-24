@@ -77,19 +77,19 @@ function userRoot(uid){
 /* ================= GTA DETECT ================= */
 
 function isPlayingGTA(member) {
-  if (!member?.presence?.activities) return false;
+  if (!member?.presence?.activities?.length) return false;
 
   return member.presence.activities.some(a => {
-    const name = (a.name || "").toLowerCase();
-    const details = (a.details || "").toLowerCase();
-    const state = (a.state || "").toLowerCase();
+    const n = (a.name || "").toLowerCase();
+    const d = (a.details || "").toLowerCase();
+    const s = (a.state || "").toLowerCase();
 
     return (
-      name.includes("fivem") ||
-      name.includes("gta") ||
-      details.includes("gta") ||
-      details.includes("gta5vn") ||
-      state.includes("gta")
+      n.includes("fivem") ||
+      n.includes("gta") ||
+      d.includes("gta") ||
+      d.includes("gta5vn") ||
+      s.includes("gta")
     );
   });
 }
@@ -147,7 +147,10 @@ client.once("ready", () => {
 client.on("interactionCreate", async i => {
   if (!i.isChatInputCommand()) return;
 
-  const member = await i.guild.members.fetch(i.user.id);
+  const member = await i.guild.members.fetch({
+  user: i.user.id,
+  force: true
+});
   const data = getUser(member.id);
   const root = userRoot(member.id);
 
