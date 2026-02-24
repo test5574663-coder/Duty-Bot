@@ -1,4 +1,10 @@
-const { Client, GatewayIntentBits, EmbedBuilder, PermissionsBitField } = require("discord.js");
+const { 
+  Client, 
+  GatewayIntentBits, 
+  EmbedBuilder, 
+  PermissionsBitField 
+} = require("discord.js");
+
 const fs = require("fs");
 const express = require("express");
 
@@ -6,7 +12,7 @@ const express = require("express");
 const TOKEN = process.env.TOKEN;
 console.log("TOKEN:", TOKEN ? "FOUND" : "MISSING");
 
-// ====== CONFIG ======
+// ===== CONFIG =====
 const ROLE_INTERN = "1467725396433834149";
 const ROLE_EMPLOYEE = "1467724655766012129";
 const PROMOTE_CHANNEL = "1472545636980101313";
@@ -15,7 +21,11 @@ const TIMEZONE = "Asia/Ho_Chi_Minh";
 
 // ===== CLIENT =====
 const client = new Client({
-  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers]
+  intents: [
+    GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMembers,
+    GatewayIntentBits.GuildPresences
+  ]
 });
 
 // ===== DATABASE =====
@@ -56,6 +66,15 @@ function getUser(guildId, userId) {
   return db[guildId][userId];
 }
 
+// ===== CHECK GTA5VN STATUS =====
+function hasGTA5VN(member) {
+  if (!member.presence) return false;
+  return member.presence.activities.some(a =>
+    a.name && a.name.toLowerCase().includes("gta5vn")
+  );
+}
+
+// ===== EMBED =====
 function buildEmbed(member, data) {
   return new EmbedBuilder()
     .setTitle("📋 BẢNG ONDUTY")
@@ -99,20 +118,34 @@ async function checkPromote(member, data) {
   }
 }
 
+// ===== COMMAND HANDLER =====
 client.on("interactionCreate", async interaction => {
   if (!interaction.isChatInputCommand()) return;
 
   const member = interaction.member;
   const data = getUser(member.guild.id, member.id);
 
+  // reset sang ngày mới
   if (data.date !== today()) {
     data.today = 0;
     data.start = null;
     data.date = today();
   }
 
+  // ===== ONDUTY =====
   if (interaction.commandName === "onduty") {
-    if (data.start) return interaction.reply({ content: "Bạn đang onduty rồi!", ephemeral: true });
+
+    if (!hasGTA5VN(member))
+      return interaction.reply({
+        content: "❌ Bạn phải đang chơi GTA5VN mới được onduty!",
+        ephemeral: true
+      });
+
+    if (data.start)
+      return interaction.reply({
+        content: "Bạn đang onduty rồi!",
+        ephemeral: true
+      });
 
     let plate = interaction.options.getString("bienso");
     data.plate = plate || data.plate;
@@ -123,8 +156,13 @@ client.on("interactionCreate", async interaction => {
     save();
   }
 
+  // ===== OFFDUTY =====
   if (interaction.commandName === "offduty") {
-    if (!data.start) return interaction.reply({ content: "Bạn chưa onduty!", ephemeral: true });
+    if (!data.start)
+      return interaction.reply({
+        content: "Bạn chưa onduty!",
+        ephemeral: true
+      });
 
     let diff = Math.floor((now() - new Date(data.start)) / 1000);
     data.today += diff;
@@ -137,9 +175,13 @@ client.on("interactionCreate", async interaction => {
     save();
   }
 
+  // ===== RESET =====
   if (interaction.commandName === "resetduty") {
     if (!member.permissions.has(PermissionsBitField.Flags.ManageGuild))
-      return interaction.reply({ content: "Không có quyền!", ephemeral: true });
+      return interaction.reply({
+        content: "Không có quyền!",
+        ephemeral: true
+      });
 
     data.today = 0;
     data.start = null;
@@ -150,7 +192,7 @@ client.on("interactionCreate", async interaction => {
   }
 });
 
-// auto đóng ca 23:59 GMT+7
+// ===== AUTO OFF 23:59 =====
 setInterval(() => {
   let t = new Date().toLocaleTimeString("vi-VN", { timeZone: TIMEZONE });
   if (t.startsWith("23:59")) {
@@ -169,10 +211,13 @@ setInterval(() => {
   }
 }, 60000);
 
+// ===== READY =====
 client.once("ready", () => console.log("Bot ready"));
+
+// ===== LOGIN =====
 client.login(TOKEN);
 
-// keep alive render
+// ===== KEEP ALIVE (Render) =====
 const app = express();
 app.get("/", (req, res) => res.send("Bot alive"));
 app.listen(3000);
