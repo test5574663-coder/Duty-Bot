@@ -1,8 +1,10 @@
+const { Client, GatewayIntentBits, EmbedBuilder, PermissionsBitField } = require("discord.js");
+const fs = require("fs");
+const express = require("express");
+
+// ===== TOKEN =====
 const TOKEN = process.env.TOKEN;
 console.log("TOKEN:", TOKEN ? "FOUND" : "MISSING");
-
-const TOKEN = process.env.TOKEN;
-client.login(TOKEN);
 
 // ====== CONFIG ======
 const ROLE_INTERN = "1467725396433834149";
@@ -11,10 +13,12 @@ const PROMOTE_CHANNEL = "1472545636980101313";
 const TIMEZONE = "Asia/Ho_Chi_Minh";
 // ====================
 
+// ===== CLIENT =====
 const client = new Client({
   intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers]
 });
 
+// ===== DATABASE =====
 let db = {};
 if (fs.existsSync("data.json")) db = JSON.parse(fs.readFileSync("data.json"));
 
@@ -101,7 +105,6 @@ client.on("interactionCreate", async interaction => {
   const member = interaction.member;
   const data = getUser(member.guild.id, member.id);
 
-  // reset sang ngày mới
   if (data.date !== today()) {
     data.today = 0;
     data.start = null;
