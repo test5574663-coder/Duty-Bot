@@ -1,11 +1,8 @@
 const TOKEN = process.env.TOKEN;
 console.log("TOKEN:", TOKEN ? "FOUND" : "MISSING");
 
-const client = new Client({
-  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers]
-});
-
-client.login(TOKEN);   // ✅ đúng vị trí
+const TOKEN = process.env.TOKEN;
+client.login(TOKEN);
 
 // ====== CONFIG ======
 const ROLE_INTERN = "1467725396433834149";
