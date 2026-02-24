@@ -77,20 +77,19 @@ function userRoot(uid){
 /* ================= GTA DETECT ================= */
 
 function isPlayingGTA(member) {
-  if (!member || !member.presence || !member.presence.activities) return false;
+  if (!member?.presence?.activities) return false;
 
-  return member.presence.activities.some(act => {
-    const name = (act.name || "").toLowerCase();
-    const details = (act.details || "").toLowerCase();
-    const state = (act.state || "").toLowerCase();
+  return member.presence.activities.some(a => {
+    const name = (a.name || "").toLowerCase();
+    const details = (a.details || "").toLowerCase();
+    const state = (a.state || "").toLowerCase();
 
     return (
-      name.includes("gta") ||
       name.includes("fivem") ||
+      name.includes("gta") ||
       details.includes("gta") ||
       details.includes("gta5vn") ||
-      state.includes("gta") ||
-      state.includes("gta5vn")
+      state.includes("gta")
     );
   });
 }
@@ -148,7 +147,7 @@ client.once("ready", () => {
 client.on("interactionCreate", async i => {
   if (!i.isChatInputCommand()) return;
 
-  const member = i.member;
+  const member = await i.guild.members.fetch(i.user.id);
   const data = getUser(member.id);
   const root = userRoot(member.id);
 
@@ -259,21 +258,21 @@ client.on("presenceUpdate", async (oldP, newP) => {
     return;
   }
 
-  /* UPDATE ACTIVITY TIME */
-  root.lastPresence = now();
+ /* TREO 10P */
+if (now() - root.lastPresence > AFK_LIMIT) {
+  const end = now();
+  data.sessions.push({ start: data.start, end });
+  data.total += end - data.start;
+  data.active = false;
+  data.start = null;
+  save();
 
-  /* TREO 10P */
-  if (now() - root.lastPresence > AFK_LIMIT) {
-    const end = now();
-    data.sessions.push({ start: data.start, end });
-    data.total += end - data.start;
-    data.active = false;
-    data.start = null;
-    save();
+  member.send("⚠️ Bạn đã bị tự động offduty do treo 10 phút").catch(()=>{});
+  return;
+}
 
-    member.send("⚠️ Bạn đã bị tự động offduty do treo 10 phút").catch(()=>{});
-    return;
-  }
+/* UPDATE ACTIVITY TIME */
+root.lastPresence = now();
 
   /* TRAINEE COMPLETE */
   if (member.roles.cache.has(TRAINEE_ROLE) &&
