@@ -1,206 +1,224 @@
-const { Client, GatewayIntentBits, EmbedBuilder, PermissionsBitField } = require("discord.js");
+const { Client, GatewayIntentBits, EmbedBuilder } = require("discord.js");
 const fs = require("fs");
 const express = require("express");
 
+// ===== TOKEN =====
 const TOKEN = process.env.TOKEN;
 
-// ====== CONFIG ======
+// ===== CONFIG =====
 const ROLE_INTERN = "1467725396433834149";
 const ROLE_EMPLOYEE = "1467724655766012129";
 const PROMOTE_CHANNEL = "1472545636980101313";
 const TIMEZONE = "Asia/Ho_Chi_Minh";
-const REQUIRED_GAME = "GTA5VN"; // tên game cần check
-// ====================
 
+// ===== CLIENT =====
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMembers,
-    GatewayIntentBits.GuildPresences // ⭐ bắt buộc để đọc trạng thái game
+    GatewayIntentBits.GuildPresences
   ]
 });
 
+// ===== KEEP ALIVE (Render) =====
+const app = express();
+app.get("/", (req, res) => res.send("Bot online"));
+app.listen(3000);
+
+// ===== DATABASE =====
 let db = {};
-if (fs.existsSync("data.json")) db = JSON.parse(fs.readFileSync("data.json"));
+if (fs.existsSync("data.json")) {
+  db = JSON.parse(fs.readFileSync("data.json"));
+}
 
 function save() {
   fs.writeFileSync("data.json", JSON.stringify(db, null, 2));
-}
-
-function today() {
-  return new Date().toLocaleDateString("vi-VN", { timeZone: TIMEZONE });
 }
 
 function now() {
   return new Date();
 }
 
-function secondsToHMS(sec) {
-  let h = Math.floor(sec / 3600);
-  let m = Math.floor((sec % 3600) / 60);
+function formatTime(sec) {
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
   return `${h}h ${m}m`;
 }
 
-function getUser(guildId, userId) {
-  if (!db[guildId]) db[guildId] = {};
-  if (!db[guildId][userId]) {
-    db[guildId][userId] = {
-      total: 0,
-      today: 0,
-      start: null,
-      plate: "",
-      date: today(),
-      messageId: null,
-      channelId: null
-    };
-  }
-  return db[guildId][userId];
+function todayStr() {
+  return new Date().toLocaleDateString("vi-VN", { timeZone: TIMEZONE });
 }
 
-// ⭐ CHECK đang chơi GTA5VN hay không
-function isPlayingRequiredGame(member) {
-  if (!member.presence) return false;
-  if (!member.presence.activities) return false;
+// ===== CHECK GTA5VN =====
+function isPlayingGTA(member) {
+  if (!member.presence || !member.presence.activities) return false;
 
   return member.presence.activities.some(a =>
-    a.name && a.name.toLowerCase().includes(REQUIRED_GAME.toLowerCase())
+    a.name && a.name.toLowerCase().includes("gta5vn")
   );
 }
 
-function buildEmbed(member, data) {
-  return new EmbedBuilder()
+// ===== EMBED UPDATE =====
+async function updateMessage(interaction, member, data) {
+  const embed = new EmbedBuilder()
+    .setColor("#00ff88")
     .setTitle("📋 BẢNG ONDUTY")
-    .setColor(data.start ? 0x00ff00 : 0xff0000)
     .addFields(
       { name: "Tên Nhân Sự", value: `<@${member.id}>`, inline: true },
       { name: "Biển Số", value: data.plate || "Chưa ghi", inline: true },
-      { name: "Ngày Onduty", value: data.date, inline: true },
-      { name: "Thời Gian Onduty", value: secondsToHMS(data.today), inline: true },
-      { name: "Tổng Thời Gian Onduty", value: secondsToHMS(data.total), inline: true },
-      { name: "Trạng Thái", value: data.start ? "🟢 Đang trực" : "🔴 Đã off", inline: true }
+      { name: "Ngày Onduty", value: data.date || todayStr(), inline: true },
+      { name: "Thời Gian Onduty", value: formatTime(data.today || 0), inline: true },
+      { name: "Tổng Thời Gian Onduty", value: formatTime(data.total || 0), inline: true },
+      { name: "Trạng Thái", value: data.start ? "🟢 Đang trực" : "⚪ Off", inline: true }
     )
-    .setTimestamp();
-}
+    .setFooter({ text: `Hôm nay lúc ${new Date().toLocaleTimeString("vi-VN")}` });
 
-async function updateMessage(interaction, member, data) {
-  let channel = interaction.channel;
-
-  if (data.messageId) {
+  if (!data.msgId) {
+    const msg = await interaction.channel.send({ embeds: [embed] });
+    data.msgId = msg.id;
+  } else {
     try {
-      let msg = await channel.messages.fetch(data.messageId);
-      await msg.edit({ embeds: [buildEmbed(member, data)] });
-      return;
-    } catch {}
+      const msg = await interaction.channel.messages.fetch(data.msgId);
+      await msg.edit({ embeds: [embed] });
+    } catch {
+      const msg = await interaction.channel.send({ embeds: [embed] });
+      data.msgId = msg.id;
+    }
   }
-
-  let msg = await channel.send({ embeds: [buildEmbed(member, data)] });
-  data.messageId = msg.id;
-  data.channelId = channel.id;
 }
 
+// ===== PROMOTE CHECK =====
 async function checkPromote(member, data) {
   if (data.total >= 60 * 3600 && member.roles.cache.has(ROLE_INTERN)) {
     await member.roles.remove(ROLE_INTERN);
     await member.roles.add(ROLE_EMPLOYEE);
 
-    let ch = member.guild.channels.cache.get(PROMOTE_CHANNEL);
+    const ch = member.guild.channels.cache.get(PROMOTE_CHANNEL);
     if (ch) {
-      ch.send(`🎉 ${member} đã đủ 60h onduty và được thăng cấp Nhân viên!`);
+      ch.send(`🎉 <@${member.id}> đã đủ 60h và được lên Nhân Viên`);
     }
   }
 }
 
+// ===== INTERACTION =====
 client.on("interactionCreate", async interaction => {
   if (!interaction.isChatInputCommand()) return;
 
   const member = interaction.member;
-  const data = getUser(member.guild.id, member.id);
-
-  if (data.date !== today()) {
-    data.today = 0;
-    data.start = null;
-    data.date = today();
+  if (!db[member.id]) {
+    db[member.id] = {
+      total: 0,
+      today: 0,
+      start: null,
+      plate: null,
+      date: todayStr(),
+      msgId: null
+    };
   }
+
+  const data = db[member.id];
 
   // ===== ONDUTY =====
   if (interaction.commandName === "onduty") {
 
-    // ⭐ CHECK GAME GTA5VN
-    if (!isPlayingRequiredGame(member)) {
+    if (!isPlayingGTA(member)) {
       return interaction.reply({
-        content: "❌ Bạn chưa vào GTA5VN nên không thể onduty!",
+        content: "❌ Bạn chưa vào GTA5VN!",
         ephemeral: true
       });
     }
 
-    if (data.start)
-      return interaction.reply({ content: "Bạn đang onduty rồi!", ephemeral: true });
+    if (data.start) {
+      return interaction.reply({
+        content: "Bạn đang onduty rồi!",
+        ephemeral: true
+      });
+    }
 
-    let plate = interaction.options.getString("bienso");
-    data.plate = plate || data.plate;
+    const plate = interaction.options.getString("bienso");
+    if (plate) data.plate = plate;
+
     data.start = now();
+    data.date = todayStr();
 
-    await interaction.reply({ content: "✅ Bắt đầu onduty", ephemeral: true });
-    await updateMessage(interaction, member, data);
     save();
+
+    await interaction.reply({
+      content: "✅ Bắt đầu onduty",
+      ephemeral: true
+    });
+
+    await updateMessage(interaction, member, data);
   }
 
   // ===== OFFDUTY =====
   if (interaction.commandName === "offduty") {
-    if (!data.start)
-      return interaction.reply({ content: "Bạn chưa onduty!", ephemeral: true });
+    if (!data.start) {
+      return interaction.reply({
+        content: "Bạn chưa onduty!",
+        ephemeral: true
+      });
+    }
 
-    let diff = Math.floor((now() - new Date(data.start)) / 1000);
+    const diff = Math.floor((now() - new Date(data.start)) / 1000);
     data.today += diff;
     data.total += diff;
     data.start = null;
 
-    await interaction.reply({ content: "⛔ Kết thúc onduty", ephemeral: true });
+    save();
+
+    await interaction.reply({
+      content: "⛔ Kết thúc onduty",
+      ephemeral: true
+    });
+
     await updateMessage(interaction, member, data);
     await checkPromote(member, data);
-    save();
   }
 
   // ===== RESET =====
-  if (interaction.commandName === "resetduty") {
-    if (!member.permissions.has(PermissionsBitField.Flags.ManageGuild))
-      return interaction.reply({ content: "Không có quyền!", ephemeral: true });
+if (interaction.commandName === "resetduty") {
 
-    data.today = 0;
-    data.start = null;
-
-    await interaction.reply({ content: "♻️ Đã reset duty", ephemeral: true });
-    await updateMessage(interaction, member, data);
-    save();
+  if (!member.roles.cache.some(r => RESET_ROLES.includes(1475698509523976273))) {
+    return interaction.reply({
+      content: "❌ Bạn không có quyền reset!",
+      ephemeral: true
+    });
   }
-});
 
-// auto đóng ca 23:59
+  data.today = 0;
+  data.start = null;
+
+  save();
+
+  await interaction.reply({
+    content: "Đã reset onduty",
+    ephemeral: true
+  });
+
+  await updateMessage(interaction, member, data);
+}
+
+// ===== AUTO MIDNIGHT RESET =====
 setInterval(() => {
-  let t = new Date().toLocaleTimeString("vi-VN", { timeZone: TIMEZONE });
-  if (t.startsWith("23:59")) {
-    for (let g in db) {
-      for (let u in db[g]) {
-        let d = db[g][u];
-        if (d.start) {
-          let diff = Math.floor((now() - new Date(d.start)) / 1000);
-          d.today += diff;
-          d.total += diff;
-          d.start = null;
-        }
+  const current = todayStr();
+
+  for (const id in db) {
+    const d = db[id];
+    if (d.date !== current) {
+      if (d.start) {
+        const diff = Math.floor((now() - new Date(d.start)) / 1000);
+        d.today += diff;
+        d.total += diff;
+        d.start = null;
       }
+      d.today = 0;
+      d.date = current;
     }
-    save();
   }
+
+  save();
 }, 60000);
 
-client.once("ready", () => {
-  console.log("Bot ready");
-});
-
+// ===== LOGIN =====
 client.login(TOKEN);
-
-// keep alive render
-const app = express();
-app.get("/", (req, res) => res.send("Bot alive"));
-app.listen(3000);
