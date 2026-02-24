@@ -119,37 +119,19 @@ client.on("interactionCreate", async interaction => {
   const data = db[member.id];
 
   // ===== ONDUTY =====
-  if (interaction.commandName === "onduty") {
+if (interaction.commandName === "onduty") {
+  if (data.start)
+    return interaction.reply({ content: "Bạn đang onduty rồi!", ephemeral: true });
 
-    if (!isPlayingGTA(member)) {
-      return interaction.reply({
-        content: "❌ Bạn chưa vào GTA5VN!",
-        ephemeral: true
-      });
-    }
+  let plate = interaction.options.getString("bien_so"); // FIXED
+  if (plate) data.plate = plate;
 
-    if (data.start) {
-      return interaction.reply({
-        content: "Bạn đang onduty rồi!",
-        ephemeral: true
-      });
-    }
+  data.start = now();
 
-    const plate = interaction.options.getString("bien_so");
-    if (plate) data.plate = plate;
-
-    data.start = now();
-    data.date = todayStr();
-
-    save();
-
-    await interaction.reply({
-      content: "✅ Bắt đầu onduty",
-      ephemeral: true
-    });
-
-    await updateMessage(interaction, member, data);
-  }
+  await interaction.reply({ content: "✅ Bắt đầu onduty", ephemeral: true });
+  await updateMessage(interaction, member, data);
+  save();
+}
 
   // ===== OFFDUTY =====
   if (interaction.commandName === "offduty") {
