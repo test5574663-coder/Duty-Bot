@@ -177,27 +177,27 @@ client.on("interactionCreate", async interaction => {
   }
 
   // ===== RESET =====
-if (interaction.commandName === "resetduty") {
+  if (interaction.commandName === "resetduty") {
+    if (!member.permissions.has("Administrator")) {
+      return interaction.reply({
+        content: "Không có quyền!",
+        ephemeral: true
+      });
+    }
 
-  if (!member.roles.cache.some(r => RESET_ROLES.includes(1475698509523976273))) {
-    return interaction.reply({
-      content: "❌ Bạn không có quyền reset!",
+    data.today = 0;
+    data.start = null;
+
+    save();
+
+    await interaction.reply({
+      content: "Đã reset onduty",
       ephemeral: true
     });
+
+    await updateMessage(interaction, member, data);
   }
-
-  data.today = 0;
-  data.start = null;
-
-  save();
-
-  await interaction.reply({
-    content: "Đã reset onduty",
-    ephemeral: true
-  });
-
-  await updateMessage(interaction, member, data);
-}
+});
 
 // ===== AUTO MIDNIGHT RESET =====
 setInterval(() => {
