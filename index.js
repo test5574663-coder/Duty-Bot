@@ -71,35 +71,25 @@ function root(uid){
   return db[uid];
 }
 
-/* ================= GTA DETECT ================= */
+// ================= GTA5VN DETECT =================
+function isPlayingGTA(member) {
+  if (!member?.presence?.activities?.length) return false;
 
-function getGTAActivity(member) {
-  if (!member?.presence?.activities?.length) return null;
-
-  return member.presence.activities.find(a => {
+  return member.presence.activities.some(a => {
     const name = (a.name || "").toLowerCase();
-    return name.includes("gta5vn");
+    const details = (a.details || "").toLowerCase();
+    const state = (a.state || "").toLowerCase();
+
+    const text = `${name} ${details} ${state}`;
+
+    return (
+      text.includes("gta5vn") ||
+      text.includes("gta 5vn") ||
+      text.includes("gta v") ||
+      text.includes("grand theft auto")
+    );
   });
 }
-
-function isPlayingGTA(member) {
-  return !!getGTAActivity(member);
-}
-
-function isAFK_GTA(member) {
-  const act = getGTAActivity(member);
-  if (!act) return false;
-
-  const details = (act.details || "").toLowerCase();
-
-  // từ khóa AFK / treo / idle tùy server GTA5VN hiển thị
-  return (
-    details.includes("afk") ||
-    details.includes("treo") ||
-    details.includes("idle")
-  );
-}
-
 /* ================= EMBED ================= */
 
 function buildEmbed(member, data, rootData) {
