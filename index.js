@@ -5,8 +5,6 @@ const TOKEN = process.env.TOKEN;
 
 const GUILD_ID = "1466476014908473550";
 const RESET_ROLE_ID = "1475815959616032883";
-const INTERN_ROLE_ID = "1467725396433834149";
-const STAFF_ROLE_ID = "1467724655766012129";
 
 const PORT = process.env.PORT || 3000;
 
@@ -22,7 +20,11 @@ const client = new Client({
   ]
 });
 
+// duty runtime
 const duty = new Map();
+
+// embed tracking (per day)
+const dutyMsg = new Map();
 
 // ===== TIME VN =====
 function nowVN() {
@@ -104,37 +106,77 @@ client.on("interactionCreate", async i => {
   if (!i.isChatInputCommand()) return;
 
   const member = i.member;
+  const today = formatDate(nowVN());
 
+  // ===== ONDUTY =====
   if (i.commandName === "onduty") {
     const plate = i.options.getString("bienso");
 
     duty.set(member.id, {
       start: nowVN(),
       plate,
-      lastGame: Date.now()
+      lastGame: Date.now(),
+      date: today
     });
 
-    const embed = buildEmbed(member, duty.get(member.id), "Đang trực");
+    const data = duty.get(member.id);
+    const embed = buildEmbed(member, data, "Đang trực");
 
-    return i.reply({ embeds: [embed] });
+    const old = dutyMsg.get(member.id);
+
+    // nếu cùng ngày → edit
+    if (old && old.date === today) {
+      try {
+        const ch = await client.channels.fetch(old.channelId);
+        const msg = await ch.messages.fetch(old.messageId);
+        await msg.edit({ embeds: [embed] });
+
+        return i.reply({ content: "Đã cập nhật bảng onduty hôm nay", ephemeral: true });
+      } catch {}
+    }
+
+    // tạo mới
+    const msg = await i.reply({ embeds: [embed], fetchReply: true });
+
+    dutyMsg.set(member.id, {
+      messageId: msg.id,
+      channelId: msg.channel.id,
+      date: today
+    });
+
+    return;
   }
 
+  // ===== OFFDUTY =====
   if (i.commandName === "ofduty") {
     const data = duty.get(member.id);
     if (!data) return i.reply({ content: "Bạn chưa onduty", ephemeral: true });
 
     duty.delete(member.id);
 
-    const embed = buildEmbed(member, data, "Off ");
-    return i.reply({ embeds: [embed] });
+    const embed = buildEmbed(member, data, "Off");
+
+    const old = dutyMsg.get(member.id);
+    if (old) {
+      try {
+        const ch = await client.channels.fetch(old.channelId);
+        const msg = await ch.messages.fetch(old.messageId);
+        await msg.edit({ embeds: [embed] });
+      } catch {}
+    }
+
+    return i.reply({ content: "Đã offduty", ephemeral: true });
   }
 
+  // ===== RESET =====
   if (i.commandName === "resetduty") {
     if (!member.roles.cache.has(RESET_ROLE_ID))
       return i.reply({ content: "Không có quyền", ephemeral: true });
 
     const user = i.options.getUser("user");
+
     duty.delete(user.id);
+    dutyMsg.delete(user.id);
 
     return i.reply(`Đã reset duty ${user}`);
   }
@@ -159,10 +201,17 @@ client.on("presenceUpdate", (oldP, newP) => {
 
   if (Date.now() - data.lastGame > 10 * 60 * 1000) {
     duty.delete(id);
+
     const member = `<@${id}>`;
     const embed = buildEmbed(member, data, "Tự off (idle game)");
-    const ch = newP.guild.systemChannel;
-    if (ch) ch.send({ embeds: [embed] });
+
+    const old = dutyMsg.get(id);
+    if (old) {
+      client.channels.fetch(old.channelId)
+        .then(ch => ch.messages.fetch(old.messageId))
+        .then(msg => msg.edit({ embeds: [embed] }))
+        .catch(() => {});
+    }
   }
 });
 
