@@ -72,7 +72,7 @@ function getUser(id) {
   return db[id];
 }
 
-// ===== EMBED =====
+// ===== BUILD EMBED (FIX GIỜ THEO NGÀY VN) =====
 function buildEmbed(member, userData, dayKey, status) {
   const day = userData.days[dayKey];
   const now = nowVN();
@@ -80,10 +80,23 @@ function buildEmbed(member, userData, dayKey, status) {
   let timeline = "";
   let totalDay = 0;
 
+  // mốc đầu cuối ngày VN
+  const [d, m, y] = dayKey.split("/");
+  const todayStart = new Date(`${y}-${m}-${d}T00:00:00+07:00`).getTime();
+  const todayEnd = new Date(`${y}-${m}-${d}T23:59:59+07:00`).getTime();
+
   day.sessions.forEach(s => {
-    const end = s.end || now;
-    timeline += `${formatTime(new Date(s.start))} ➝ ${s.end ? formatTime(new Date(s.end)) : "..."}\n`;
-    totalDay += end - s.start;
+    const start = s.start;
+    const end = s.end || now.getTime();
+
+    // phần giao với ngày hiện tại
+    const realStart = Math.max(start, todayStart);
+    const realEnd = Math.min(end, todayEnd);
+
+    if (realEnd > realStart) {
+      timeline += `${formatTime(new Date(start))} ➝ ${s.end ? formatTime(new Date(s.end)) : "..."}\n`;
+      totalDay += realEnd - realStart;
+    }
   });
 
   const isIntern = member.roles.cache.has(INTERN_ROLE_ID);
@@ -97,7 +110,7 @@ function buildEmbed(member, userData, dayKey, status) {
 **Biển Số :** ${day.plate}
 
 **Thời Gian Onduty :**
-${timeline}
+${timeline || "Chưa có"}
 
 **Ngày Onduty :** ${dayKey}
 
@@ -169,7 +182,7 @@ client.on("interactionCreate", async i => {
   const user = getUser(member.id);
   const dayKey = formatDate(nowVN());
 
-  // ===== ONDUTY =====
+  // ONDUTY
   if (i.commandName === "onduty") {
 
     if (!isPlayingGTA(member))
@@ -198,7 +211,7 @@ client.on("interactionCreate", async i => {
     return i.reply({ content: "Onduty thành công", ephemeral: true });
   }
 
-  // ===== OFDUTY =====
+  // OFDUTY
   if (i.commandName === "ofduty") {
 
     const day = user.days[dayKey];
@@ -212,7 +225,7 @@ client.on("interactionCreate", async i => {
 
     saveDB();
 
-    // lên nhân viên đủ 60h
+    // lên nhân viên
     if (member.roles.cache.has(INTERN_ROLE_ID) && user.total >= 60 * 60 * 1000) {
       await member.roles.add(STAFF_ROLE_ID);
       await member.roles.remove(INTERN_ROLE_ID);
@@ -223,7 +236,7 @@ client.on("interactionCreate", async i => {
     return i.reply({ content: "Đã offduty", ephemeral: true });
   }
 
-  // ===== RESET =====
+  // RESET
   if (i.commandName === "resetduty") {
 
     if (!member.roles.cache.has(RESET_ROLE_ID))
