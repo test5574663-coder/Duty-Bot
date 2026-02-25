@@ -49,18 +49,17 @@ loadDB();
 function nowVN() {
   return new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Ho_Chi_Minh" }));
 }
-function formatTime(d) {
-  return new Date(d).toLocaleTimeString("vi-VN", {
+function formatTime(ms) {
+  return new Date(ms).toLocaleTimeString("vi-VN", {
     timeZone: "Asia/Ho_Chi_Minh",
     hour12: false
   });
 }
-}
-function formatDate(d) {
-  return new Date(d).toLocaleDateString("vi-VN", {
+
+function formatDate(ms) {
+  return new Date(ms).toLocaleDateString("vi-VN", {
     timeZone: "Asia/Ho_Chi_Minh"
   });
-}
 }
 function diffText(ms) {
   const totalMin = Math.floor(ms / 60000);
