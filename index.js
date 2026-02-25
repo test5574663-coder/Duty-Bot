@@ -50,10 +50,17 @@ function nowVN() {
   return new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Ho_Chi_Minh" }));
 }
 function formatTime(d) {
-  return d.toLocaleTimeString("vi-VN", { hour12: false });
+  return new Date(d).toLocaleTimeString("vi-VN", {
+    timeZone: "Asia/Ho_Chi_Minh",
+    hour12: false
+  });
+}
 }
 function formatDate(d) {
-  return d.toLocaleDateString("vi-VN");
+  return new Date(d).toLocaleDateString("vi-VN", {
+    timeZone: "Asia/Ho_Chi_Minh"
+  });
+}
 }
 function diffText(ms) {
   const totalMin = Math.floor(ms / 60000);
