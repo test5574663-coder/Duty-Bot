@@ -1,133 +1,106 @@
-const { Client, GatewayIntentBits, EmbedBuilder, ActivityType } = require("discord.js");
+require("dotenv").config();
+const { Client, GatewayIntentBits, EmbedBuilder, SlashCommandBuilder, Routes, REST } = require("discord.js");
 
-// ===== HTTP SERVER (Render Web Service) =====
-require("http")
-  .createServer((req, res) => res.end("Bot alive"))
-  .listen(process.env.PORT || 3000);
-
-// ===== CONFIG =====
 const TOKEN = process.env.TOKEN;
 
 const GUILD_ID = "1466476014908473550";
-const LOG_CHANNEL_ID = "1472440293940002828";
+const RESET_ROLE_ID = "1475815959616032883";
+const INTERN_ROLE_ID = "1467725396433834149";
+const STAFF_ROLE_ID = "1467724655766012129";
 
-const ROLE_STAFF = "1475815959616032883";
-const ROLE_TRAINEE = "1467725396433834149";
+const PORT = process.env.PORT || 3000;
 
-const GTA_KEYWORD = "GTA5VN"; // chữ trong status
+// ===== WEB SERVICE KEEP ALIVE =====
+require("http").createServer((req, res) => res.end("OK")).listen(PORT);
 
-// ===== BOT =====
+// ===== CLIENT =====
 const client = new Client({
-  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers, GatewayIntentBits.GuildPresences],
+  intents: [
+    GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildPresences,
+    GatewayIntentBits.GuildMembers
+  ]
 });
 
-const dutyData = new Map();
+const duty = new Map();
 
-// ===== TIME GMT+7 =====
-function vnNow() {
+// ===== TIME VN =====
+function nowVN() {
   return new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Ho_Chi_Minh" }));
 }
 
-function formatDate(date) {
-  return date.toLocaleDateString("vi-VN", { timeZone: "Asia/Ho_Chi_Minh" });
+function formatTime(d) {
+  return d.toLocaleTimeString("vi-VN", { hour12: false });
 }
 
-function formatTime(date) {
-  return date.toLocaleTimeString("vi-VN", {
-    hour12: false,
-    timeZone: "Asia/Ho_Chi_Minh",
-  });
+function formatDate(d) {
+  return d.toLocaleDateString("vi-VN");
 }
 
-function calcDuration(start, end) {
-  const diff = end - start;
-  const h = Math.floor(diff / 3600000);
-  const m = Math.floor((diff % 3600000) / 60000);
+function diffText(ms) {
+  const totalMin = Math.floor(ms / 60000);
+  const h = Math.floor(totalMin / 60);
+  const m = totalMin % 60;
   return `${h} giờ ${m} phút`;
 }
 
-// ===== GTA DETECT =====
-function hasGTA(member) {
-  if (!member.presence) return false;
-  return member.presence.activities.some(
-    (a) => a.type === ActivityType.Playing && a.name.includes(GTA_KEYWORD)
-  );
-}
+// ===== EMBED =====
+function buildEmbed(member, data, status) {
+  const now = nowVN();
+  const total = now - data.start;
 
-// ===== ONDUTY =====
-function startDuty(member, plate) {
-  dutyData.set(member.id, {
-    plate,
-    start: vnNow(),
-    lastActivity: Date.now(),
-  });
-}
-
-// ===== OFFDUTY =====
-async function endDuty(member, reason = "Thoát GTA") {
-  const data = dutyData.get(member.id);
-  if (!data) return;
-
-  const end = vnNow();
-
-  const guild = client.guilds.cache.get(GUILD_ID);
-  const logChannel = guild.channels.cache.get(LOG_CHANNEL_ID);
-
-  const embed = new EmbedBuilder()
-    .setColor(0x00ffcc)
+  return new EmbedBuilder()
+    .setColor("#00ff9c")
+    .setAuthor({ name: "BẢNG ONDUTY" })
     .setDescription(
-`**Tên Nhân Sự :** <@${member.id}>
-**Biển Số :** ${data.plate}
-**Thời Gian Onduty :** ${formatTime(data.start)} → ${formatTime(end)}
+`**Tên Nhân Sự :** ${member}
+
+**Biển Số :** ${data.plate || "Chưa nhập"}
+
+**Thời Gian Onduty :** ${formatTime(data.start)} ➝ ${status === "Đang trực" ? "..." : formatTime(now)}
+
 **Ngày Onduty :** ${formatDate(data.start)}
-**Tổng Thời Gian Onduty :** ${calcDuration(data.start, end)}
-**Trạng Thái Hoạt Động :** ${reason}`
-    )
-    .setTimestamp();
 
-  logChannel.send({ embeds: [embed] });
+**Tổng Thời Gian Onduty :** ${diffText(total)}
 
-  dutyData.delete(member.id);
+**Trạng Thái Hoạt Động :** ${status}`
+    );
 }
-
-// ===== STATUS WATCH =====
-setInterval(() => {
-  const now = Date.now();
-
-  dutyData.forEach((data, userId) => {
-    const guild = client.guilds.cache.get(GUILD_ID);
-    const member = guild.members.cache.get(userId);
-    if (!member) return;
-
-    // nếu không còn GTA
-    if (!hasGTA(member)) {
-      endDuty(member, "Thoát GTA");
-      return;
-    }
-
-    // nếu GTA không đổi 10 phút
-    if (now - data.lastActivity > 10 * 60 * 1000) {
-      endDuty(member, "AFK GTA 10 phút");
-    }
-  });
-}, 60000);
-
-// ===== PRESENCE UPDATE =====
-client.on("presenceUpdate", (oldP, newP) => {
-  if (!newP) return;
-  const member = newP.member;
-  if (!member) return;
-
-  const data = dutyData.get(member.id);
-  if (!data) return;
-
-  if (hasGTA(member)) {
-    data.lastActivity = Date.now();
-  }
-});
 
 // ===== SLASH =====
-client.on("interactionCreate", async (i) => {
+const commands = [
+  new SlashCommandBuilder()
+    .setName("onduty")
+    .setDescription("Bắt đầu trực")
+    .addStringOption(o =>
+      o.setName("bienso")
+       .setDescription("Nhập biển số xe")
+       .setRequired(true)
+    ),
+
+  new SlashCommandBuilder()
+    .setName("ofduty")
+    .setDescription("Kết thúc trực"),
+
+  new SlashCommandBuilder()
+    .setName("resetduty")
+    .setDescription("Reset duty")
+    .addUserOption(o =>
+      o.setName("user")
+       .setDescription("Chọn người")
+       .setRequired(true)
+    )
+].map(c => c.toJSON());
+
+client.once("clientReady", async () => {
+  console.log("Bot ready");
+
+  const rest = new REST({ version: "10" }).setToken(TOKEN);
+  await rest.put(Routes.applicationGuildCommands(client.user.id, GUILD_ID), { body: commands });
+});
+
+// ===== ONDUTY =====
+client.on("interactionCreate", async i => {
   if (!i.isChatInputCommand()) return;
 
   const member = i.member;
@@ -135,31 +108,63 @@ client.on("interactionCreate", async (i) => {
   if (i.commandName === "onduty") {
     const plate = i.options.getString("bienso");
 
-    if (!hasGTA(member)) {
-      return i.reply({ content: "Vào Game Đi ĐM!.", ephemeral: true });
-    }
+    duty.set(member.id, {
+      start: nowVN(),
+      plate,
+      lastGame: Date.now()
+    });
 
-    if (dutyData.has(member.id)) {
-      return i.reply({ content: "Bạn đã onduty.", ephemeral: true });
-    }
+    const embed = buildEmbed(member, duty.get(member.id), "Đang trực");
 
-    startDuty(member, plate);
-
-    i.reply({ content: "Đã bắt đầu onduty.", ephemeral: true });
+    return i.reply({ embeds: [embed] });
   }
 
-  if (i.commandName === "offduty") {
-    if (!dutyData.has(member.id)) {
-      return i.reply({ content: "Bạn chưa onduty.", ephemeral: true });
-    }
+  if (i.commandName === "ofduty") {
+    const data = duty.get(member.id);
+    if (!data) return i.reply({ content: "Bạn chưa onduty", ephemeral: true });
 
-    await endDuty(member, "Off thủ công");
+    duty.delete(member.id);
 
-    i.reply({ content: "Đã offduty.", ephemeral: true });
+    const embed = buildEmbed(member, data, "Off ");
+    return i.reply({ embeds: [embed] });
+  }
+
+  if (i.commandName === "resetduty") {
+    if (!member.roles.cache.has(RESET_ROLE_ID))
+      return i.reply({ content: "Không có quyền", ephemeral: true });
+
+    const user = i.options.getUser("user");
+    duty.delete(user.id);
+
+    return i.reply(`Đã reset duty ${user}`);
   }
 });
 
-// ===== READY =====
-client.once("ready", () => console.log("Bot ready"));
+// ===== PRESENCE WATCH =====
+client.on("presenceUpdate", (oldP, newP) => {
+  if (!newP) return;
 
+  const id = newP.userId;
+  const data = duty.get(id);
+  if (!data) return;
+
+  const playing = newP.activities?.some(a =>
+    a.name?.toLowerCase().includes("gta")
+  );
+
+  if (playing) {
+    data.lastGame = Date.now();
+    return;
+  }
+
+  if (Date.now() - data.lastGame > 10 * 60 * 1000) {
+    duty.delete(id);
+    const member = `<@${id}>`;
+    const embed = buildEmbed(member, data, "Tự off (idle game)");
+    const ch = newP.guild.systemChannel;
+    if (ch) ch.send({ embeds: [embed] });
+  }
+});
+
+// ===== LOGIN =====
 client.login(TOKEN);
