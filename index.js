@@ -1,13 +1,15 @@
 const { Client, GatewayIntentBits, EmbedBuilder } = require("discord.js");
 const fs = require("fs");
+const http = require("http");
 
 const TOKEN = process.env.TOKEN;
-
-const TRAINEE_ROLE = "1467725396433834149";
-const EMPLOYEE_ROLE = "1467724655766012129";
-const CONGRATS_CHANNEL = "1467729036066295820";
-
 const DATA_FILE = "duty.json";
+
+/* ================= RENDER KEEP ALIVE ================= */
+http.createServer((req, res) => {
+  res.write("OK");
+  res.end();
+}).listen(process.env.PORT || 3000);
 
 /* ================= DB ================= */
 
@@ -41,7 +43,8 @@ function getUser(uid) {
       active: false,
       start: null,
       sessions: [],
-      total: 0
+      total: 0,
+      plate: ""
     };
   }
 
@@ -81,6 +84,7 @@ function buildEmbed(member, data) {
 
   const desc =
 `Tên Nhân Sự : <@${member.id}>
+Biển Số : ${data.plate || "Chưa ghi"}
 Thời Gian Onduty :
 ${timeline || "Chưa có"}
 Tổng Thời Gian : ${totalMin} phút
@@ -118,8 +122,11 @@ client.on("interactionCreate", async i => {
   if (i.commandName === "onduty") {
 
     if (!isPlayingGTA(member)) {
-      return i.reply({ content: "❌Vào Game Đi ĐM!", ephemeral: true });
+      return i.reply({ content: "❌ Vào Game Đi ĐM!", ephemeral: true });
     }
+
+    const plate = i.options.getString("bienso");
+    if (plate) data.plate = plate;
 
     if (!data.active) {
       data.active = true;
@@ -149,7 +156,7 @@ client.on("interactionCreate", async i => {
   }
 });
 
-/* ================= AUTO OFF KHI THOÁT GAME ================= */
+/* ================= AUTO OFF ================= */
 
 client.on("presenceUpdate", (oldP, newP) => {
   const member = newP?.member;
