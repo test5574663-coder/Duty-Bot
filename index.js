@@ -23,7 +23,7 @@ const client = new Client({
 });
 
 // ===== DATABASE =====
-const DB_FILE = "./dutyDB.json";
+const DB_FILE = "./duty.json";
 let db = {};
 
 function loadDB() {
