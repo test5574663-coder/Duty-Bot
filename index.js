@@ -1,4 +1,5 @@
 require("dotenv").config();
+const fs = require("fs");
 const { Client, GatewayIntentBits, EmbedBuilder, SlashCommandBuilder, Routes, REST } = require("discord.js");
 
 const TOKEN = process.env.TOKEN;
@@ -10,8 +11,6 @@ const INTERN_ROLE_ID = "1467725396433834149";
 const STAFF_ROLE_ID = "1467724655766012129";
 
 const PORT = process.env.PORT || 3000;
-
-// ===== WEB SERVICE =====
 require("http").createServer((req, res) => res.end("OK")).listen(PORT);
 
 // ===== CLIENT =====
@@ -23,24 +22,30 @@ const client = new Client({
   ]
 });
 
-// ===== DATA =====
-const dutyToday = new Map(); // ngày hiện tại
-const dutyTotal = new Map(); // tổng nhiều ngày
-const dutyMsg = new Map();   // embed id
+// ===== DATABASE =====
+const DB_FILE = "./dutyDB.json";
+let db = {};
+
+function loadDB() {
+  if (fs.existsSync(DB_FILE)) {
+    db = JSON.parse(fs.readFileSync(DB_FILE));
+  }
+}
+function saveDB() {
+  fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2));
+}
+loadDB();
 
 // ===== TIME VN =====
 function nowVN() {
   return new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Ho_Chi_Minh" }));
 }
-
 function formatTime(d) {
   return d.toLocaleTimeString("vi-VN", { hour12: false });
 }
-
 function formatDate(d) {
   return d.toLocaleDateString("vi-VN");
 }
-
 function diffText(ms) {
   const totalMin = Math.floor(ms / 60000);
   const h = Math.floor(totalMin / 60);
@@ -50,23 +55,37 @@ function diffText(ms) {
 
 // ===== GTA CHECK =====
 function isPlayingGTA(member) {
-  const presence = member.presence;
-  if (!presence) return false;
-  return presence.activities?.some(a => a.name?.toLowerCase().includes("gta"));
+  const p = member.presence;
+  if (!p) return false;
+  return p.activities?.some(a => a.name?.toLowerCase().includes("gta"));
+}
+
+// ===== GET USER DB =====
+function getUser(id) {
+  if (!db[id]) {
+    db[id] = {
+      total: 0,
+      days: {}
+    };
+  }
+  return db[id];
 }
 
 // ===== EMBED =====
-function buildEmbed(member, data, status, totalAll, isIntern) {
+function buildEmbed(member, userData, dayKey, status) {
+  const day = userData.days[dayKey];
   const now = nowVN();
 
   let timeline = "";
   let totalDay = 0;
 
-  data.sessions.forEach(s => {
+  day.sessions.forEach(s => {
     const end = s.end || now;
-    timeline += `${formatTime(s.start)} ➝ ${s.end ? formatTime(s.end) : "..."}\n`;
+    timeline += `${formatTime(new Date(s.start))} ➝ ${s.end ? formatTime(new Date(s.end)) : "..."}\n`;
     totalDay += end - s.start;
   });
+
+  const isIntern = member.roles.cache.has(INTERN_ROLE_ID);
 
   return new EmbedBuilder()
     .setColor("#00ff9c")
@@ -74,15 +93,15 @@ function buildEmbed(member, data, status, totalAll, isIntern) {
     .setDescription(
 `**Tên Nhân Sự :** ${member}
 
-**Biển Số :** ${data.plate}
+**Biển Số :** ${day.plate}
 
 **Thời Gian Onduty :**
 ${timeline}
 
-**Ngày Onduty :** ${data.date}
+**Ngày Onduty :** ${dayKey}
 
 **Tổng Thời Gian Onduty :** ${diffText(totalDay)}
-${isIntern ? `\n**Tổng Thời Gian Thực Tập :** ${diffText(totalAll)}` : ""}
+${isIntern ? `\n**Tổng Thời Gian Thực Tập :** ${diffText(userData.total)}` : ""}
 
 **Trạng Thái Hoạt Động :** ${status}`
     );
@@ -115,84 +134,89 @@ const commands = [
 
 client.once("clientReady", async () => {
   console.log("Bot ready");
-
   const rest = new REST({ version: "10" }).setToken(TOKEN);
   await rest.put(Routes.applicationGuildCommands(client.user.id, GUILD_ID), { body: commands });
 });
 
-// ===== ON/OFF =====
+// ===== ONDUTY =====
 client.on("interactionCreate", async i => {
   if (!i.isChatInputCommand()) return;
   const member = i.member;
 
-  // ===== ONDUTY =====
+  // ONDUTY
   if (i.commandName === "onduty") {
 
     if (!isPlayingGTA(member))
       return i.reply({ content: "❌ Bạn phải đang trong GTA", ephemeral: true });
 
     const plate = i.options.getString("bienso");
-    const today = formatDate(nowVN());
+    const dayKey = formatDate(nowVN());
 
-    let data = dutyToday.get(member.id);
+    const user = getUser(member.id);
 
-    if (!data || data.date !== today) {
-      data = { date: today, plate, sessions: [], lastGame: Date.now() };
-      dutyToday.set(member.id, data);
+    if (!user.days[dayKey]) {
+      user.days[dayKey] = {
+        plate,
+        sessions: [],
+        messageId: null,
+        channelId: null,
+        lastGame: Date.now()
+      };
     }
 
-    data.plate = plate;
-    data.sessions.push({ start: nowVN(), end: null });
+    const day = user.days[dayKey];
+    day.plate = plate;
+    day.sessions.push({ start: Date.now(), end: null });
 
-    const totalAll = dutyTotal.get(member.id) || 0;
-    const isIntern = member.roles.cache.has(INTERN_ROLE_ID);
+    saveDB();
 
-    const embed = buildEmbed(member, data, "Đang trực", totalAll, isIntern);
+    const embed = buildEmbed(member, user, dayKey, "Đang trực");
 
-    const old = dutyMsg.get(member.id);
-    if (old) {
+    if (day.messageId) {
       try {
-        const ch = await client.channels.fetch(old.channelId);
-        const msg = await ch.messages.fetch(old.messageId);
+        const ch = await client.channels.fetch(day.channelId);
+        const msg = await ch.messages.fetch(day.messageId);
         await msg.edit({ embeds: [embed] });
       } catch {}
     } else {
       const msg = await i.channel.send({ embeds: [embed] });
-      dutyMsg.set(member.id, { channelId: msg.channelId, messageId: msg.id });
+      day.messageId = msg.id;
+      day.channelId = msg.channelId;
+      saveDB();
     }
 
     return i.reply({ content: "Onduty thành công", ephemeral: true });
   }
 
-  // ===== OFDUTY =====
+  // OFDUTY
   if (i.commandName === "ofduty") {
-    const data = dutyToday.get(member.id);
-    if (!data) return i.reply({ content: "Bạn chưa onduty", ephemeral: true });
+    const user = getUser(member.id);
+    const dayKey = formatDate(nowVN());
+    const day = user.days[dayKey];
 
-    const last = data.sessions[data.sessions.length - 1];
-    if (last && !last.end) last.end = nowVN();
+    if (!day) return i.reply({ content: "Bạn chưa onduty", ephemeral: true });
 
-    // cộng tổng
-    const duration = last.end - last.start;
-    dutyTotal.set(member.id, (dutyTotal.get(member.id) || 0) + duration);
-
-    const totalAll = dutyTotal.get(member.id);
-    const isIntern = member.roles.cache.has(INTERN_ROLE_ID);
-
-    // đủ 60h
-    if (isIntern && totalAll >= 60 * 60 * 1000) {
-      await member.roles.add(STAFF_ROLE_ID);
-      await member.roles.remove(INTERN_ROLE_ID);
-      i.channel.send(`🎉 Chúc mừng ${member} đã trở thành Nhân Viên chính thức!`);
+    const last = day.sessions[day.sessions.length - 1];
+    if (last && !last.end) {
+      last.end = Date.now();
+      user.total += last.end - last.start;
     }
 
-    const embed = buildEmbed(member, data, "Off", totalAll, isIntern);
+    saveDB();
 
-    const old = dutyMsg.get(member.id);
-    if (old) {
+    // lên nhân viên
+    if (member.roles.cache.has(INTERN_ROLE_ID) && user.total >= 60 * 60 * 1000) {
+      await member.roles.add(STAFF_ROLE_ID);
+      await member.roles.remove(INTERN_ROLE_ID);
+      i.channel.send(`🎉 Chúc mừng ${member} đã đủ 60h và trở thành Nhân Viên!`);
+    }
+
+    const embed = buildEmbed(member, user, dayKey, "Off");
+
+    if (day.messageId) {
       try {
-        const ch = await client.channels.fetch(old.channelId);
-        const msg = await ch.messages.fetch(old.messageId);
+        const ch = await client.channels.fetch(day.channelId);
+        const msg = await ch.messages.fetch(day.messageId);
         await msg.edit({ embeds: [embed] });
       } catch {}
     }
@@ -200,17 +224,16 @@ client.on("interactionCreate", async i => {
     return i.reply({ content: "Đã offduty", ephemeral: true });
   }
 
-  // ===== RESET =====
+  // RESET
   if (i.commandName === "resetduty") {
     if (!member.roles.cache.has(RESET_ROLE_ID))
       return i.reply({ content: "Không có quyền", ephemeral: true });
 
-    const user = i.options.getUser("user");
-    dutyToday.delete(user.id);
-    dutyTotal.delete(user.id);
-    dutyMsg.delete(user.id);
+    const u = i.options.getUser("user");
+    delete db[u.id];
+    saveDB();
 
-    return i.reply(`Đã reset duty ${user}`);
+    return i.reply(`Đã reset duty ${u}`);
   }
 });
 
@@ -219,25 +242,29 @@ client.on("presenceUpdate", (oldP, newP) => {
   if (!newP) return;
 
   const id = newP.userId;
-  const data = dutyToday.get(id);
-  if (!data) return;
+  const user = db[id];
+  if (!user) return;
+
+  const dayKey = formatDate(nowVN());
+  const day = user.days[dayKey];
+  if (!day) return;
 
   const playing = newP.activities?.some(a => a.name?.toLowerCase().includes("gta"));
 
   if (playing) {
-    data.lastGame = Date.now();
+    day.lastGame = Date.now();
+    saveDB();
     return;
   }
 
-  if (Date.now() - data.lastGame > 10 * 60 * 1000) {
-    const last = data.sessions[data.sessions.length - 1];
-    if (last && !last.end) last.end = nowVN();
-
-    dutyTotal.set(id, (dutyTotal.get(id) || 0) + (last.end - last.start));
-
-    dutyToday.delete(id);
+  if (Date.now() - day.lastGame > 10 * 60 * 1000) {
+    const last = day.sessions[day.sessions.length - 1];
+    if (last && !last.end) {
+      last.end = Date.now();
+      user.total += last.end - last.start;
+      saveDB();
+    }
   }
 });
 
-// ===== LOGIN =====
 client.login(TOKEN);
