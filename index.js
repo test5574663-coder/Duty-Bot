@@ -79,17 +79,13 @@ function isPlayingGTA(member) {
   if (!member?.presence?.activities?.length) return false;
 
   return member.presence.activities.some(a => {
-    const text = (
-      (a.name || "") + " " +
-      (a.details || "") + " " +
-      (a.state || "")
-    ).toLowerCase();
+    const text = `${a.name} ${a.details} ${a.state}`.toLowerCase();
 
     return (
+      text.includes("fivem") ||
       text.includes("gta") ||
       text.includes("gta5") ||
-      text.includes("gta5vn") ||
-      text.includes("fivem")
+      text.includes("gta5vn")
     );
   });
 }
@@ -157,27 +153,39 @@ client.on("interactionCreate", async i => {
   const root = userRoot(member.id);
 
   /* ONDUTY */
-  if (i.commandName === "onduty") {
+if (i.commandName === "onduty") {
 
-    if (!isPlayingGTA(member)) {
-      return i.reply({
-        content: "❌ Bạn chưa vào game GTA/FiveM!",
-        ephemeral: true
-      });
-    }
+  await i.deferReply({ ephemeral: true });
 
-    const plate = i.options.getString("bienso");
+  // fetch member fresh
+  let member = await i.guild.members.fetch(i.user.id).catch(()=>null);
+  if (!member) return i.editReply("❌ Không tìm thấy member");
 
-    if (!data.active) {
-      data.active = true;
-      data.start = now();
-      root.lastPresence = now();
-      if (plate) data.plate = plate;
-      save();
-    }
-
-    return i.reply({ embeds: [buildEmbed(member, data, root)] });
+  // nếu chưa có presence thì đợi 2s để discord sync
+  if (!member.presence) {
+    await new Promise(r => setTimeout(r, 2000));
+    member = await i.guild.members.fetch(i.user.id).catch(()=>member);
   }
+
+  if (!isPlayingGTA(member)) {
+    return i.editReply("❌ Bạn Chưa Vào Game");
+  }
+
+  const data = getUser(member.id);
+  const root = userRoot(member.id);
+
+  const plate = i.options.getString("bienso");
+
+  if (!data.active) {
+    data.active = true;
+    data.start = now();
+    root.lastPresence = now();
+    if (plate) data.plate = plate;
+    save();
+  }
+
+  return i.editReply({ embeds: [buildEmbed(member, data, root)] });
+}}
 
   /* OFFDUTY */
   if (i.commandName === "offduty") {
