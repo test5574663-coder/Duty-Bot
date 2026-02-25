@@ -6,7 +6,7 @@ const http = require("http");
 
 const TOKEN = process.env.TOKEN;
 
-const RESET_ROLES = ["1475815959616032883"];
+const RESET_ROLES = ["1475815959616032883"]; // role quản lý
 const TRAINEE_ROLE = "1467725396433834149";
 const EMPLOYEE_ROLE = "1467724655766012129";
 const CONGRATS_CHANNEL = "1467729036066295820";
@@ -16,7 +16,7 @@ const TRAIN_TARGET = 60 * 60 * 1000;
 
 const DATA_FILE = "duty.json";
 
-/* ================= RENDER ================= */
+/* ================= KEEP RENDER ALIVE ================= */
 
 http.createServer((req, res) => {
   res.write("OK");
@@ -53,7 +53,6 @@ function fmtDate() {
 
 function getUser(uid) {
   const day = todayKey();
-
   if (!db[uid]) db[uid] = { traineeTotal: 0, lastPresence: now() };
   if (!db[uid][day]) {
     db[uid][day] = {
@@ -64,49 +63,53 @@ function getUser(uid) {
       plate: ""
     };
   }
-
   return db[uid][day];
 }
 
-function userRoot(uid){
+function root(uid){
   if (!db[uid]) db[uid] = { traineeTotal: 0, lastPresence: now() };
   return db[uid];
 }
 
-/* ================= GTA DETECT (FIXED) ================= */
+/* ================= GTA DETECT ================= */
 
 function isPlayingGTA(member) {
-  if (!member?.presence?.activities?.length) return false;
+  if (!member) return false;
 
-  return member.presence.activities.some(a => {
-    const text = `${a.name} ${a.details} ${a.state}`.toLowerCase();
+  const activities = member.presence?.activities;
+  if (!activities || activities.length === 0) return false;
+
+  return activities.some(a => {
+    const text = (
+      (a.name || "") + " " +
+      (a.details || "") + " " +
+      (a.state || "")
+    ).toLowerCase();
 
     return (
-      text.includes("fivem") ||
       text.includes("gta") ||
-      text.includes("gta5") ||
-      text.includes("gta5vn")
+      text.includes("grand theft auto") ||
+      text.includes("fivem") ||
+      text.includes("GTA5VN")
     );
   });
 }
 
 /* ================= EMBED ================= */
 
-function buildEmbed(member, data, root) {
+function buildEmbed(member, data, rootData) {
 
   let timeline = "";
-
   data.sessions.forEach(s => {
     timeline += `${fmt(s.start)} → ${fmt(s.end)}\n`;
   });
-
   if (data.active) timeline += `${fmt(data.start)} → ...\n`;
 
   const totalMin = Math.floor(data.total / 60000);
 
   let traineeLine = "";
   if (member.roles.cache.has(TRAINEE_ROLE)) {
-    const h = (root.traineeTotal / 3600000).toFixed(1);
+    const h = (rootData.traineeTotal / 3600000).toFixed(1);
     traineeLine = `Tổng Thời Gian Thực Tập : ${h} giờ\n`;
   }
 
@@ -144,48 +147,29 @@ client.once("ready", () => {
 client.on("interactionCreate", async i => {
   if (!i.isChatInputCommand()) return;
 
-  const member = await i.guild.members.fetch({
-    user: i.user.id,
-    force: true
-  });
-
+  const member = await i.guild.members.fetch(i.user.id);
   const data = getUser(member.id);
-  const root = userRoot(member.id);
+  const r = root(member.id);
 
   /* ONDUTY */
-if (i.commandName === "onduty") {
+  if (i.commandName === "onduty") {
 
-  await i.deferReply({ ephemeral: true });
+    if (!isPlayingGTA(member)) {
+      return i.reply({ content: "❌ Vào game đi ĐM", ephemeral: true });
+    }
 
-  // fetch member fresh
-  let member = await i.guild.members.fetch(i.user.id).catch(()=>null);
-  if (!member) return i.editReply("❌ Không tìm thấy member");
+    const plate = i.options.getString("bienso");
 
-  // nếu chưa có presence thì đợi 2s để discord sync
-  if (!member.presence) {
-    await new Promise(r => setTimeout(r, 2000));
-    member = await i.guild.members.fetch(i.user.id).catch(()=>member);
+    if (!data.active) {
+      data.active = true;
+      data.start = now();
+      r.lastPresence = now();
+      if (plate) data.plate = plate;
+      save();
+    }
+
+    return i.reply({ embeds: [buildEmbed(member, data, r)] });
   }
-
-  if (!isPlayingGTA(member)) {
-    return i.editReply("❌ Bạn Chưa Vào Game");
-  }
-
-  const data = getUser(member.id);
-  const root = userRoot(member.id);
-
-  const plate = i.options.getString("bienso");
-
-  if (!data.active) {
-    data.active = true;
-    data.start = now();
-    root.lastPresence = now();
-    if (plate) data.plate = plate;
-    save();
-  }
-
-  return i.editReply({ embeds: [buildEmbed(member, data, root)] });
-}}
 
   /* OFFDUTY */
   if (i.commandName === "offduty") {
@@ -196,7 +180,7 @@ if (i.commandName === "onduty") {
       data.total += end - data.start;
 
       if (member.roles.cache.has(TRAINEE_ROLE)) {
-        root.traineeTotal += end - data.start;
+        r.traineeTotal += end - data.start;
       }
 
       data.active = false;
@@ -204,7 +188,7 @@ if (i.commandName === "onduty") {
       save();
     }
 
-    return i.reply({ embeds: [buildEmbed(member, data, root)] });
+    return i.reply({ embeds: [buildEmbed(member, data, r)] });
   }
 
   /* RESET */
@@ -254,17 +238,18 @@ client.on("presenceUpdate", async (oldP, newP) => {
   if (!member) return;
 
   const data = getUser(member.id);
-  const root = userRoot(member.id);
+  const r = root(member.id);
 
   if (!data.active) return;
 
+  /* OUT GAME AUTO OFF */
   if (!isPlayingGTA(member)) {
     const end = now();
     data.sessions.push({ start: data.start, end });
     data.total += end - data.start;
 
     if (member.roles.cache.has(TRAINEE_ROLE)) {
-      root.traineeTotal += end - data.start;
+      r.traineeTotal += end - data.start;
     }
 
     data.active = false;
@@ -273,7 +258,8 @@ client.on("presenceUpdate", async (oldP, newP) => {
     return;
   }
 
-  if (now() - root.lastPresence > AFK_LIMIT) {
+  /* TREO 10P */
+  if (now() - r.lastPresence > AFK_LIMIT) {
     const end = now();
     data.sessions.push({ start: data.start, end });
     data.total += end - data.start;
@@ -281,21 +267,23 @@ client.on("presenceUpdate", async (oldP, newP) => {
     data.start = null;
     save();
 
-    member.send("⚠️ Bạn đã bị tự động offduty do treo 10 phút").catch(()=>{});
+    member.send("⚠️ Bạn bị cưỡng chế offduty do treo 10 phút").catch(()=>{});
     return;
   }
 
-  root.lastPresence = now();
+  /* UPDATE ACTIVITY */
+  r.lastPresence = now();
 
+  /* TRAINEE COMPLETE */
   if (member.roles.cache.has(TRAINEE_ROLE) &&
-      root.traineeTotal >= TRAIN_TARGET &&
+      r.traineeTotal >= TRAIN_TARGET &&
       !member.roles.cache.has(EMPLOYEE_ROLE)) {
 
     await member.roles.add(EMPLOYEE_ROLE).catch(()=>{});
     await member.roles.remove(TRAINEE_ROLE).catch(()=>{});
 
     const ch = member.guild.channels.cache.get(CONGRATS_CHANNEL);
-    if (ch) ch.send(`🎉 Chúc mừng <@${member.id}> đã hoàn thành 60 giờ thực tập và trở thành nhân viên!`);
+    if (ch) ch.send(`🎉 Chúc mừng <@${member.id}> đã hoàn thành 60 giờ thực tập và trở thành Culi Vip !`);
   }
 });
 
