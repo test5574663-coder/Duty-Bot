@@ -73,18 +73,31 @@ function root(uid){
 
 /* ================= GTA DETECT ================= */
 
-const { exec } = require("child_process");
+function getGTAActivity(member) {
+  if (!member?.presence?.activities?.length) return null;
 
-function checkGTAProcess(callback) {
-  exec('tasklist', (err, stdout) => {
-    if (err) return callback(false);
-
-    if (stdout.toLowerCase().includes("gta5vn.exe")) {
-      callback(true);  // đang chạy GTA
-    } else {
-      callback(false); // chưa chạy
-    }
+  return member.presence.activities.find(a => {
+    const name = (a.name || "").toLowerCase();
+    return name.includes("gta5vn");
   });
+}
+
+function isPlayingGTA(member) {
+  return !!getGTAActivity(member);
+}
+
+function isAFK_GTA(member) {
+  const act = getGTAActivity(member);
+  if (!act) return false;
+
+  const details = (act.details || "").toLowerCase();
+
+  // từ khóa AFK / treo / idle tùy server GTA5VN hiển thị
+  return (
+    details.includes("afk") ||
+    details.includes("treo") ||
+    details.includes("idle")
+  );
 }
 
 /* ================= EMBED ================= */
