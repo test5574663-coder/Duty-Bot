@@ -73,25 +73,17 @@ function root(uid){
 
 /* ================= GTA DETECT ================= */
 
-function isPlayingGTA(member) {
-  if (!member) return false;
+const { exec } = require("child_process");
 
-  const activities = member.presence?.activities;
-  if (!activities || activities.length === 0) return false;
+function checkGTAProcess(callback) {
+  exec('tasklist', (err, stdout) => {
+    if (err) return callback(false);
 
-  return activities.some(a => {
-    const text = (
-      (a.name || "") + " " +
-      (a.details || "") + " " +
-      (a.state || "")
-    ).toLowerCase();
-
-    return (
-      text.includes("gta") ||
-      text.includes("grand theft auto") ||
-      text.includes("fivem") ||
-      text.includes("GTA5VN")
-    );
+    if (stdout.toLowerCase().includes("gta5vn.exe")) {
+      callback(true);  // đang chạy GTA
+    } else {
+      callback(false); // chưa chạy
+    }
   });
 }
 
