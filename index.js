@@ -55,7 +55,6 @@ function formatTime(ms) {
     hour12: false
   });
 }
-
 function formatDate(ms) {
   return new Date(ms).toLocaleDateString("vi-VN", {
     timeZone: "Asia/Ho_Chi_Minh"
@@ -103,7 +102,7 @@ function buildEmbed(member, userData, dayKey, status) {
   const isIntern = member.roles.cache.has(INTERN_ROLE_ID);
 
   return new EmbedBuilder()
-    .setColor("#00ff9c")
+    .setColor(status.includes("Off") ? "#ff4d4f" : "#00ff9c")
     .setAuthor({ name: "BẢNG ONDUTY" })
     .setDescription(
 `**Tên Nhân Sự :** ${member}
@@ -232,7 +231,6 @@ client.on("interactionCreate", async i => {
 
     await sendOrUpdateEmbed(i.channel, member, user, dayKey, "Off");
 
-    // ===== UP ROLE 60H =====
     if (member.roles.cache.has(INTERN_ROLE_ID) && user.total >= 60 * 60 * 1000) {
       await member.roles.add(STAFF_ROLE_ID);
       await member.roles.remove(INTERN_ROLE_ID);
@@ -293,5 +291,52 @@ client.on("presenceUpdate", async (oldP, newP) => {
     }
   }
 });
+
+// ===== AUTO OFF MIDNIGHT =====
+let midnightDone = false;
+
+setInterval(async () => {
+  const now = nowVN();
+  const hour = now.getHours();
+  const minute = now.getMinutes();
+
+  if (hour === 23 && minute === 59) {
+    if (midnightDone) return;
+    midnightDone = true;
+
+    for (const id in db) {
+      const user = db[id];
+      const dayKey = formatDate(now);
+      const day = user.days[dayKey];
+      if (!day) continue;
+
+      const last = day.sessions[day.sessions.length - 1];
+      if (!last || last.end) continue;
+
+      last.end = Date.now();
+      user.total += last.end - last.start;
+      saveDB();
+
+      try {
+        const guild = await client.guilds.fetch(GUILD_ID);
+        const member = await guild.members.fetch(id);
+        const ch = await client.channels.fetch(day.channelId);
+
+        await sendOrUpdateEmbed(
+          ch,
+          member,
+          user,
+          dayKey,
+          "Tự off (Qua ngày)"
+        );
+      } catch {}
+    }
+  }
+
+  if (hour === 0 && minute > 1) {
+    midnightDone = false;
+  }
+
+}, 30 * 1000);
 
 client.login(TOKEN);
