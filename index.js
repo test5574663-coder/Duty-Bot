@@ -88,6 +88,9 @@ function buildEmbed(member, user, dayKey, status) {
     totalDay += end - s.start;
   });
 
+  // cộng/trừ penalty ngày
+  if (day.extra) totalDay += day.extra;
+
   const isIntern = member.roles.cache.has(INTERN_ROLE_ID);
 
   return new EmbedBuilder()
@@ -138,17 +141,49 @@ const commands = [
     .addStringOption(o =>
       o.setName("bienso").setDescription("Biển số").setRequired(true)
     ),
+
   new SlashCommandBuilder()
-    .setName("ofduty")
+    .setName("offduty")
     .setDescription("Kết thúc trực"),
+
   new SlashCommandBuilder()
-    .setName("resetduty")
-    .setDescription("Reset duty")
-    .addUserOption(o =>
-      o.setName("user").setDescription("User").setRequired(true)
-    )
+    .setName("penalty")
+    .setDescription("Cộng thời gian")
+    .addUserOption(o => o.setName("user").setDescription("User").setRequired(true))
+    .addIntegerOption(o => o.setName("minutes").setDescription("Phút").setRequired(true))
+    .addStringOption(o =>
+      o.setName("type")
+        .setDescription("Loại")
+        .setRequired(true)
+        .addChoices(
+          { name: "Onduty ngày", value: "day" },
+          { name: "Thực tập tổng", value: "total" }
+        )
+    ),
+
+  new SlashCommandBuilder()
+    .setName("adjust")
+    .setDescription("Trừ thời gian")
+    .addUserOption(o => o.setName("user").setDescription("User").setRequired(true))
+    .addIntegerOption(o => o.setName("minutes").setDescription("Phút").setRequired(true))
+    .addStringOption(o =>
+      o.setName("type")
+        .setDescription("Loại")
+        .setRequired(true)
+        .addChoices(
+          { name: "Onduty ngày", value: "day" },
+          { name: "Thực tập tổng", value: "total" }
+        )
+    ),
+
+  new SlashCommandBuilder()
+    .setName("forced_duty")
+    .setDescription("Cưỡng chế offduty")
+    .addUserOption(o => o.setName("user").setDescription("User").setRequired(true))
+
 ].map(c => c.toJSON());
 
+// ===== READY =====
 client.once("ready", async () => {
   const rest = new REST({ version: "10" }).setToken(TOKEN);
   await rest.put(Routes.applicationGuildCommands(client.user.id, GUILD_ID), { body: commands });
@@ -163,15 +198,14 @@ client.on("interactionCreate", async i => {
   const user = getUser(member.id);
   const dayKey = dateKeyVN();
 
+  // ONDUTY
   if (i.commandName === "onduty") {
-
     const activities = member.presence?.activities || [];
     const playing = activities.some(a => a.name?.toLowerCase().includes("gta"));
     if (!playing)
-      return i.reply({ content: "❌ Bạn chưa vào GTA", ephemeral: true });
+      return i.reply({ content: "❌ Vào Game Đi ĐM!", ephemeral: true });
 
     let day = user.days[dayKey];
-
     if (day && day.sessions.some(s => !s.end))
       return i.reply({ content: "❌ Bạn đang onduty rồi", ephemeral: true });
 
@@ -194,7 +228,8 @@ client.on("interactionCreate", async i => {
     return i.reply({ content: "Onduty thành công", ephemeral: true });
   }
 
-  if (i.commandName === "ofduty") {
+  // OFFDUTY
+  if (i.commandName === "offduty") {
     const day = user.days[dayKey];
     if (!day) return i.reply({ content: "Bạn chưa onduty", ephemeral: true });
 
@@ -209,18 +244,89 @@ client.on("interactionCreate", async i => {
     return i.reply({ content: "Đã offduty", ephemeral: true });
   }
 
-  if (i.commandName === "resetduty") {
+  // PENALTY
+  if (i.commandName === "penalty") {
     if (!member.roles.cache.has(RESET_ROLE_ID))
       return i.reply({ content: "Không có quyền", ephemeral: true });
 
     const u = i.options.getUser("user");
-    delete db[u.id];
+    const minutes = i.options.getInteger("minutes");
+    const type = i.options.getString("type");
+
+    const target = getUser(u.id);
+    const ms = minutes * 60000;
+
+    if (type === "total") {
+      target.total += ms;
+    }
+
+    if (type === "day") {
+      const day = target.days[dayKey];
+      if (day) day.extra = (day.extra || 0) + ms;
+    }
+
     saveDB();
-    return i.reply(`Đã reset ${u}`);
+
+    const m = await i.guild.members.fetch(u.id);
+    await sendOrUpdateEmbed(i.channel, m, target, dayKey, "Penalty");
+
+    return i.reply(`Đã cộng ${minutes} phút cho ${u}`);
+  }
+
+  // ADJUST
+  if (i.commandName === "adjust") {
+    if (!member.roles.cache.has(RESET_ROLE_ID))
+      return i.reply({ content: "Không có quyền", ephemeral: true });
+
+    const u = i.options.getUser("user");
+    const minutes = i.options.getInteger("minutes");
+    const type = i.options.getString("type");
+
+    const target = getUser(u.id);
+    const ms = minutes * 60000;
+
+    if (type === "total") {
+      target.total = Math.max(0, target.total - ms);
+    }
+
+    if (type === "day") {
+      const day = target.days[dayKey];
+      if (day) day.extra = Math.max(0, (day.extra || 0) - ms);
+    }
+
+    saveDB();
+
+    const m = await i.guild.members.fetch(u.id);
+    await sendOrUpdateEmbed(i.channel, m, target, dayKey, "Adjust");
+
+    return i.reply(`Đã trừ ${minutes} phút của ${u}`);
+  }
+
+  // FORCED DUTY
+  if (i.commandName === "forced_duty") {
+    if (!member.roles.cache.has(RESET_ROLE_ID))
+      return i.reply({ content: "Không có quyền", ephemeral: true });
+
+    const u = i.options.getUser("user");
+    const target = getUser(u.id);
+    const day = target.days[dayKey];
+    if (!day) return i.reply("User chưa onduty");
+
+    const last = day.sessions.find(s => !s.end);
+    if (!last) return i.reply("User đã off");
+
+    last.end = Date.now();
+    target.total += last.end - last.start;
+    saveDB();
+
+    const m = await i.guild.members.fetch(u.id);
+    await sendOrUpdateEmbed(i.channel, m, target, dayKey, "Force Off");
+
+    return i.reply(`Đã cưỡng chế offduty ${u}`);
   }
 });
 
-// ===== OFF NGAY KHI THOÁT GTA =====
+// ===== AUTO OFF GTA =====
 client.on("presenceUpdate", async (oldP, newP) => {
   if (!newP?.member) return;
 
@@ -245,12 +351,12 @@ client.on("presenceUpdate", async (oldP, newP) => {
 
     try {
       const ch = await client.channels.fetch(day.channelId);
-      await sendOrUpdateEmbed(ch, newP.member, user, dayKey, "Tự off (Thoát GTA)");
+      await sendOrUpdateEmbed(ch, newP.member, user, dayKey, "Tự off (ALT lấy lợi thế)");
     } catch {}
   }
 });
 
-// ===== AUTO OFF 23:59 VN =====
+// ===== AUTO OFF 23:59 =====
 setInterval(async () => {
   const now = nowVN();
   if (now.getHours() !== 23 || now.getMinutes() !== 59) return;
@@ -270,12 +376,9 @@ setInterval(async () => {
     saveDB();
 
     try {
-      const member = await client.guilds.cache
-        .get(GUILD_ID)
-        ?.members.fetch(id);
-
+      const member = await client.guilds.cache.get(GUILD_ID)?.members.fetch(id);
       const ch = await client.channels.fetch(day.channelId);
-      await sendOrUpdateEmbed(ch, member, user, dayKey, "Tự off (23:59)");
+      await sendOrUpdateEmbed(ch, member, user, dayKey, "Tự off (Qua Ngày Mới)");
     } catch {}
   }
 }, 60 * 1000);
