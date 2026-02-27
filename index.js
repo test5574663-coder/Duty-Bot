@@ -158,7 +158,7 @@ const commands = [
     )
 ].map(c => c.toJSON());
 
-client.once("clientReady", async () => {
+client.once("ready", async () => {
   const rest = new REST({ version: "10" }).setToken(TOKEN);
   await rest.put(Routes.applicationGuildCommands(client.user.id, GUILD_ID), { body: commands });
   console.log("Bot ready");
