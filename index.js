@@ -1,6 +1,7 @@
 require("dotenv").config();
 const fs = require("fs");
 const http = require("http");
+const https = require("https");
 const {
   Client,
   GatewayIntentBits,
@@ -18,9 +19,16 @@ const RESET_ROLE_ID = "1475815959616032883";
 const INTERN_ROLE_ID = "1467725396433834149";
 const STAFF_ROLE_ID = "1467724655766012129";
 
-// ===== KEEP ALIVE =====
+// ================= KEEP ALIVE REAL (RENDER) =================
 const PORT = process.env.PORT || 3000;
 http.createServer((req, res) => res.end("OK")).listen(PORT);
+
+// 🔁 self ping mỗi 5 phút (tránh sleep)
+setInterval(() => {
+  if (process.env.RENDER_EXTERNAL_URL) {
+    https.get(process.env.RENDER_EXTERNAL_URL);
+  }
+}, 5 * 60 * 1000);
 
 // ===== CLIENT =====
 const client = new Client({
@@ -47,8 +55,8 @@ loadDB();
 function nowVN() {
   return new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Ho_Chi_Minh" }));
 }
-function dateKeyVN() {
-  return nowVN().toLocaleDateString("vi-VN");
+function dateKeyVN(date = nowVN()) {
+  return date.toLocaleDateString("vi-VN");
 }
 function formatTime(ms) {
   return new Date(ms).toLocaleTimeString("vi-VN", { hour12: false });
@@ -155,7 +163,7 @@ client.once("clientReady", async () => {
   console.log("Bot ready");
 });
 
-// ===== ONDUTY =====
+// ===== ONDUTY / OFDUTY / RESET =====
 client.on("interactionCreate", async i => {
   if (!i.isChatInputCommand()) return;
 
@@ -170,7 +178,6 @@ client.on("interactionCreate", async i => {
 
     let day = user.days[dayKey];
 
-    // ❗ đang trực → chặn
     if (day && day.sessions.some(s => !s.end))
       return i.reply({ content: "❌ Bạn đang onduty rồi", ephemeral: true });
 
@@ -195,7 +202,6 @@ client.on("interactionCreate", async i => {
     return i.reply({ content: "Onduty thành công", ephemeral: true });
   }
 
-  // ===== OFDUTY =====
   if (i.commandName === "ofduty") {
 
     const day = user.days[dayKey];
@@ -209,17 +215,9 @@ client.on("interactionCreate", async i => {
     saveDB();
 
     await sendOrUpdateEmbed(i.channel, member, user, dayKey, "Off");
-
-    if (member.roles.cache.has(INTERN_ROLE_ID) && user.total >= 60 * 60 * 1000) {
-      await member.roles.add(STAFF_ROLE_ID);
-      await member.roles.remove(INTERN_ROLE_ID);
-      i.channel.send(`🎉 ${member} chúc mừng bạn đã đủ chỉ tiêu và lên Nhân Viên`);
-    }
-
     return i.reply({ content: "Đã offduty", ephemeral: true });
   }
 
-  // ===== RESET =====
   if (i.commandName === "resetduty") {
     if (!member.roles.cache.has(RESET_ROLE_ID))
       return i.reply({ content: "Không có quyền", ephemeral: true });
@@ -263,17 +261,17 @@ client.on("presenceUpdate", async (oldP, newP) => {
       const guild = newP.guild;
       const member = await guild.members.fetch(id);
       const ch = await client.channels.fetch(day.channelId);
-      await sendOrUpdateEmbed(ch, member, user, dayKey, "Tự off (Treo Máy hoặc Thoát Game)");
+      await sendOrUpdateEmbed(ch, member, user, dayKey, "Tự off (AFK GTA)");
     } catch {}
   }
 });
 
-// ===== AUTO OFF MIDNIGHT =====
+// ===== AUTO OFF MIDNIGHT (23:59 VN) =====
 setInterval(async () => {
   const now = nowVN();
   if (now.getHours() !== 23 || now.getMinutes() !== 59) return;
 
-  const dayKey = dateKeyVN();
+  const dayKey = dateKeyVN(now);
 
   for (const id in db) {
     const user = db[id];
