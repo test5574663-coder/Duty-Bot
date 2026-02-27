@@ -18,13 +18,11 @@ console.log("TOKEN:", TOKEN ? "OK" : "MISSING");
 const GUILD_ID = "1466476014908473550";
 const RESET_ROLE_ID = "1475815959616032883";
 const INTERN_ROLE_ID = "1467725396433834149";
-const STAFF_ROLE_ID = "1467724655766012129";
 
-// ================= KEEP ALIVE REAL (RENDER) =================
+// ================= KEEP ALIVE =================
 const PORT = process.env.PORT || 3000;
 http.createServer((req, res) => res.end("OK")).listen(PORT);
 
-// 🔁 self ping mỗi 5 phút (tránh sleep)
 setInterval(() => {
   if (process.env.RENDER_EXTERNAL_URL) {
     https.get(process.env.RENDER_EXTERNAL_URL);
@@ -68,10 +66,14 @@ function diffText(ms) {
 }
 
 // ===== GTA CHECK =====
-function isPlayingGTA(member) {
-  const p = member.presence;
-  if (!p) return false;
-  return p.activities?.some(a => a.name?.toLowerCase().includes("gta"));
+async function isPlayingGTA(member) {
+  try {
+    const fresh = await member.fetch(true);
+    const activities = fresh.presence?.activities || [];
+    return activities.some(a => a.name?.toLowerCase().includes("gta"));
+  } catch {
+    return false;
+  }
 }
 
 // ===== USER DB =====
@@ -145,11 +147,9 @@ const commands = [
     .addStringOption(o =>
       o.setName("bienso").setDescription("Biển số").setRequired(true)
     ),
-
   new SlashCommandBuilder()
     .setName("ofduty")
     .setDescription("Kết thúc trực"),
-
   new SlashCommandBuilder()
     .setName("resetduty")
     .setDescription("Reset duty")
@@ -164,18 +164,18 @@ client.once("ready", async () => {
   console.log("Bot ready");
 });
 
-// ===== ONDUTY / OFDUTY / RESET =====
+// ===== COMMAND HANDLER =====
 client.on("interactionCreate", async i => {
   if (!i.isChatInputCommand()) return;
 
-  const member = i.member;
+  const member = await i.guild.members.fetch(i.user.id);
   const user = getUser(member.id);
   const dayKey = dateKeyVN();
 
   if (i.commandName === "onduty") {
 
-    if (!isPlayingGTA(member))
-      return i.reply({ content: "❌ Vào Game Đi ĐM", ephemeral: true });
+    if (!(await isPlayingGTA(member)))
+      return i.reply({ content: "❌ Bạn chưa vào GTA", ephemeral: true });
 
     let day = user.days[dayKey];
 
@@ -204,7 +204,6 @@ client.on("interactionCreate", async i => {
   }
 
   if (i.commandName === "ofduty") {
-
     const day = user.days[dayKey];
     if (!day) return i.reply({ content: "Bạn chưa onduty", ephemeral: true });
 
@@ -232,9 +231,9 @@ client.on("interactionCreate", async i => {
 
 // ===== AUTO OFF GTA =====
 client.on("presenceUpdate", async (oldP, newP) => {
-  if (!newP) return;
+  if (!newP?.member) return;
 
-  const id = newP.userId;
+  const id = newP.member.id;
   const user = db[id];
   if (!user) return;
 
@@ -242,7 +241,8 @@ client.on("presenceUpdate", async (oldP, newP) => {
   const day = user.days[dayKey];
   if (!day) return;
 
-  const playing = newP.activities?.some(a => a.name?.toLowerCase().includes("gta"));
+  const activities = newP.member.presence?.activities || [];
+  const playing = activities.some(a => a.name?.toLowerCase().includes("gta"));
 
   if (playing) {
     day.lastGame = Date.now();
@@ -259,41 +259,10 @@ client.on("presenceUpdate", async (oldP, newP) => {
     saveDB();
 
     try {
-      const guild = newP.guild;
-      const member = await guild.members.fetch(id);
       const ch = await client.channels.fetch(day.channelId);
-      await sendOrUpdateEmbed(ch, member, user, dayKey, "Tự off (AFK GTA)");
+      await sendOrUpdateEmbed(ch, newP.member, user, dayKey, "Tự off (AFK GTA)");
     } catch {}
   }
 });
-
-// ===== AUTO OFF MIDNIGHT (23:59 VN) =====
-setInterval(async () => {
-  const now = nowVN();
-  if (now.getHours() !== 23 || now.getMinutes() !== 59) return;
-
-  const dayKey = dateKeyVN(now);
-
-  for (const id in db) {
-    const user = db[id];
-    const day = user.days[dayKey];
-    if (!day) continue;
-
-    const last = day.sessions.find(s => !s.end);
-    if (!last) continue;
-
-    last.end = Date.now();
-    user.total += last.end - last.start;
-    saveDB();
-
-    try {
-      const guild = await client.guilds.fetch(GUILD_ID);
-      const member = await guild.members.fetch(id);
-      const ch = await client.channels.fetch(day.channelId);
-      await sendOrUpdateEmbed(ch, member, user, dayKey, "Tự off (Qua ngày)");
-    } catch {}
-  }
-
-}, 30 * 1000);
 
 client.login(TOKEN);
