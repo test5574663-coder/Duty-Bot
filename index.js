@@ -12,14 +12,13 @@ const {
 } = require("discord.js");
 
 const TOKEN = process.env.TOKEN;
-console.log("TOKEN:", TOKEN ? "OK" : "MISSING");
 
 // ===== CONFIG =====
 const GUILD_ID = "1466476014908473550";
 const RESET_ROLE_ID = "1475815959616032883";
 const INTERN_ROLE_ID = "1467725396433834149";
 
-// ================= KEEP ALIVE =================
+// ===== KEEP ALIVE RENDER =====
 const PORT = process.env.PORT || 3000;
 http.createServer((req, res) => res.end("OK")).listen(PORT);
 
@@ -54,10 +53,8 @@ loadDB();
 function nowVN() {
   return new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Ho_Chi_Minh" }));
 }
-function dateKeyVN(date = Date.now()) {
-  return new Date(date).toLocaleDateString("vi-VN", {
-    timeZone: "Asia/Ho_Chi_Minh"
-  });
+function dateKeyVN() {
+  return nowVN().toLocaleDateString("vi-VN");
 }
 function formatTime(ms) {
   return new Date(ms).toLocaleTimeString("vi-VN", {
@@ -70,24 +67,13 @@ function diffText(ms) {
   return `${Math.floor(m / 60)} giờ ${m % 60} phút`;
 }
 
-// ===== GTA CHECK =====
-async function isPlayingGTA(member) {
-  try {
-    const fresh = await member.fetch(true);
-    const activities = fresh.presence?.activities || [];
-    return activities.some(a => a.name?.toLowerCase().includes("gta"));
-  } catch {
-    return false;
-  }
-}
-
 // ===== USER DB =====
 function getUser(id) {
   if (!db[id]) db[id] = { total: 0, days: {} };
   return db[id];
 }
 
-// ===== BUILD EMBED =====
+// ===== EMBED =====
 function buildEmbed(member, user, dayKey, status) {
   const day = user.days[dayKey];
   if (!day) return null;
@@ -124,7 +110,7 @@ ${isIntern ? `\n**Tổng Thời Gian Thực Tập :** ${diffText(user.total)}` :
     );
 }
 
-// ===== SEND OR UPDATE =====
+// ===== SEND / UPDATE =====
 async function sendOrUpdateEmbed(channel, member, user, dayKey, status) {
   const day = user.days[dayKey];
   const embed = buildEmbed(member, user, dayKey, status);
@@ -179,7 +165,9 @@ client.on("interactionCreate", async i => {
 
   if (i.commandName === "onduty") {
 
-    if (!(await isPlayingGTA(member)))
+    const activities = member.presence?.activities || [];
+    const playing = activities.some(a => a.name?.toLowerCase().includes("gta"));
+    if (!playing)
       return i.reply({ content: "❌ Bạn chưa vào GTA", ephemeral: true });
 
     let day = user.days[dayKey];
@@ -194,14 +182,12 @@ client.on("interactionCreate", async i => {
         plate,
         sessions: [],
         messageId: null,
-        channelId: null,
-        lastGame: Date.now()
+        channelId: null
       };
     }
 
     day.plate = plate;
     day.sessions.push({ start: Date.now(), end: null });
-    day.lastGame = Date.now();
     saveDB();
 
     await sendOrUpdateEmbed(i.channel, member, user, dayKey, "Đang trực");
@@ -234,7 +220,7 @@ client.on("interactionCreate", async i => {
   }
 });
 
-// ===== AUTO OFF GTA =====
+// ===== OFF NGAY KHI THOÁT GTA =====
 client.on("presenceUpdate", async (oldP, newP) => {
   if (!newP?.member) return;
 
@@ -249,13 +235,7 @@ client.on("presenceUpdate", async (oldP, newP) => {
   const activities = newP.member.presence?.activities || [];
   const playing = activities.some(a => a.name?.toLowerCase().includes("gta"));
 
-  if (playing) {
-    day.lastGame = Date.now();
-    saveDB();
-    return;
-  }
-
-  if (Date.now() - day.lastGame > 10 * 60 * 1000) {
+  if (!playing) {
     const last = day.sessions.find(s => !s.end);
     if (!last) return;
 
@@ -265,9 +245,39 @@ client.on("presenceUpdate", async (oldP, newP) => {
 
     try {
       const ch = await client.channels.fetch(day.channelId);
-      await sendOrUpdateEmbed(ch, newP.member, user, dayKey, "Tự off (AFK GTA)");
+      await sendOrUpdateEmbed(ch, newP.member, user, dayKey, "Tự off (Thoát GTA)");
     } catch {}
   }
 });
+
+// ===== AUTO OFF 23:59 VN =====
+setInterval(async () => {
+  const now = nowVN();
+  if (now.getHours() !== 23 || now.getMinutes() !== 59) return;
+
+  const dayKey = dateKeyVN();
+
+  for (const id in db) {
+    const user = db[id];
+    const day = user.days[dayKey];
+    if (!day) continue;
+
+    const last = day.sessions.find(s => !s.end);
+    if (!last) continue;
+
+    last.end = Date.now();
+    user.total += last.end - last.start;
+    saveDB();
+
+    try {
+      const member = await client.guilds.cache
+        .get(GUILD_ID)
+        ?.members.fetch(id);
+
+      const ch = await client.channels.fetch(day.channelId);
+      await sendOrUpdateEmbed(ch, member, user, dayKey, "Tự off (23:59)");
+    } catch {}
+  }
+}, 60 * 1000);
 
 client.login(TOKEN);
