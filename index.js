@@ -12,6 +12,7 @@ const {
 } = require("discord.js");
 
 const TOKEN = process.env.TOKEN;
+console.log("TOKEN:", TOKEN ? "OK" : "MISSING");
 
 // ===== CONFIG =====
 const GUILD_ID = "1466476014908473550";
