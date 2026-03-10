@@ -263,3 +263,5 @@ client.once("ready", async () => {
   console.log("BOT READY");
 
 });
+
+client.login(TOKEN);
