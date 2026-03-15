@@ -25,4 +25,4 @@ const commands = [
 ].map(c => c.toJSON());
 
 const rest = new REST({ version: "10" }).setToken(TOKEN);
-rest.put(Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID), { body: commands });
+rest.put(Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID), { body: [] });
