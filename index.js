@@ -1,288 +1,263 @@
-import {
+require("dotenv").config();
+const admin = require("firebase-admin");
+
+const {
   Client,
   GatewayIntentBits,
   EmbedBuilder,
-  REST,
+  SlashCommandBuilder,
   Routes,
-  SlashCommandBuilder
-} from 'discord.js';
+  REST
+} = require("discord.js");
 
-import admin from 'firebase-admin';
-import dotenv from 'dotenv';
-
-dotenv.config();
-
-// ===== CONFIG =====
-const CHANNEL_ID = "1482561032378650769";
-const ADMIN_ROLE_ID = "1475815959616032883";
-const INTERN_ROLE_ID = "1467725396433834149";
+// ===== TOKEN =====
+const TOKEN = process.env.DISCORD_TOKEN;
 
 // ===== FIREBASE =====
 const serviceAccount = JSON.parse(process.env.FIREBASE_JSON);
 
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount),
-  databaseURL: serviceAccount.databaseURL
+  databaseURL: "https://anhlame-occhohehe1-default-rtdb.asia-southeast1.firebasedatabase.app/"
 });
 
-const db = admin.database();
+const dbRef = admin.database().ref("onduty");
 
 // ===== CLIENT =====
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildPresences,
-    GatewayIntentBits.GuildMembers
+    GatewayIntentBits.GuildMembers,
+    GatewayIntentBits.GuildPresences
   ]
 });
+
+// ===== CONFIG =====
+const GUILD_ID = "1466476014908473550";
+const RESET_ROLE_ID = "1475815959616032883";
+const INTERN_ROLE_ID = "1467725396433834149";
+
+// ===== LOCAL CACHE =====
+let db = {};
+
+// ===== LOAD DB =====
+async function loadDB() {
+  const snap = await dbRef.get();
+  db = snap.val() || {};
+}
+
+// ===== SAVE DB =====
+async function saveDB() {
+  await dbRef.set(db);
+}
+
+// ===== TIME =====
+function nowVN() {
+  return new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Ho_Chi_Minh" }));
+}
+function dateKeyVN() {
+  return nowVN().toLocaleDateString("vi-VN");
+}
+function formatTime(ms) {
+  return new Date(ms).toLocaleTimeString("vi-VN", { hour12: false });
+}
+function diffText(ms) {
+  const m = Math.floor(ms / 60000);
+  return `${Math.floor(m / 60)} giờ ${m % 60} phút`;
+}
+
+// ===== USER =====
+function getUser(id) {
+  if (!db[id]) db[id] = { total: 0, days: {} };
+  return db[id];
+}
+
+// ===== EMBED =====
+function buildEmbed(member, user, dayKey, status) {
+  const day = user.days[dayKey];
+  if (!day) return null;
+
+  let timeline = "";
+  let totalDay = 0;
+  const now = Date.now();
+
+  day.sessions.forEach(s => {
+    const end = s.end || now;
+    timeline += `${formatTime(s.start)} ➝ ${s.end ? formatTime(s.end) : "..."}\n`;
+    totalDay += end - s.start;
+  });
+
+  if (day.extra) totalDay += day.extra;
+
+  const isIntern = member.roles.cache.has(INTERN_ROLE_ID);
+
+  return new EmbedBuilder()
+    .setColor(status.includes("Off") ? "#ff4d4f" : "#00ff9c")
+    .setAuthor({ name: "BẢNG ONDUTY" })
+    .setDescription(
+`**Tên Nhân Sự :** <@${member.id}>
+
+**Biển Số :** ${day.plate || "Chưa nhập"}
+
+**Thời Gian Onduty :**
+${timeline || "Chưa có"}
+
+**Ngày Onduty :** ${dayKey}
+
+**Tổng Thời Gian Onduty :** ${diffText(totalDay)}
+${isIntern ? `\n**Tổng Thời Gian Thực Tập :** ${diffText(user.total)}` : ""}
+
+**Trạng Thái Hoạt Động :** ${status}`
+    );
+}
+
+// ===== SEND / UPDATE =====
+async function sendOrUpdateEmbed(channel, member, user, dayKey, status) {
+  const day = user.days[dayKey];
+  const embed = buildEmbed(member, user, dayKey, status);
+  if (!embed) return;
+
+  // 👉 chỉ để tag user phục vụ search
+  const content = `<@${member.id}>`;
+
+  // ===== UPDATE MESSAGE =====
+  if (day.messageId && day.channelId) {
+    try {
+      const ch = await client.channels.fetch(day.channelId);
+      const msg = await ch.messages.fetch(day.messageId);
+
+      if (msg) {
+        await msg.edit({
+          content: content,
+          embeds: [embed]
+        });
+        return;
+      }
+    } catch {}
+  }
+
+  // ===== SEND NEW =====
+  const msg = await channel.send({
+    content: content,
+    embeds: [embed]
+  });
+
+  day.messageId = msg.id;
+  day.channelId = channel.id;
+
+  await saveDB();
+}
 
 // ===== COMMANDS =====
 const commands = [
   new SlashCommandBuilder()
-    .setName('onduty')
-    .setDescription('Bắt đầu onduty'),
-
-  new SlashCommandBuilder()
-    .setName('offduty')
-    .setDescription('Kết thúc onduty'),
-
-  new SlashCommandBuilder()
-    .setName('thaybienso')
-    .setDescription('Thay biển số')
+    .setName("onduty")
+    .setDescription("Bắt đầu trực")
     .addStringOption(o =>
-      o.setName('bienso')
-        .setDescription('Biển số xe')
+      o.setName("bienso")
+        .setDescription("Biển số xe")
         .setRequired(true)
     ),
 
   new SlashCommandBuilder()
-    .setName('penalty')
-    .setDescription('Cộng giờ')
+    .setName("offduty")
+    .setDescription("Kết thúc trực"),
+
+  new SlashCommandBuilder()
+    .setName("thaybienso")
+    .setDescription("Đổi biển số khi đang trực")
+    .addStringOption(o =>
+      o.setName("bienso")
+        .setDescription("Biển số mới")
+        .setRequired(true)
+    ),
+
+  new SlashCommandBuilder()
+    .setName("penalty")
+    .setDescription("Cộng thời gian")
     .addUserOption(o =>
-      o.setName('user')
-        .setDescription('Người bị cộng')
+      o.setName("user")
+        .setDescription("Người bị cộng")
         .setRequired(true)
     )
     .addIntegerOption(o =>
-      o.setName('minutes')
-        .setDescription('Số phút')
+      o.setName("minutes")
+        .setDescription("Số phút")
         .setRequired(true)
+    )
+    .addStringOption(o =>
+      o.setName("type")
+        .setDescription("Loại thời gian")
+        .setRequired(true)
+        .addChoices(
+          { name: "Onduty ngày", value: "day" },
+          { name: "Thực tập tổng", value: "total" }
+        )
     ),
 
   new SlashCommandBuilder()
-    .setName('adjust')
-    .setDescription('Trừ giờ')
+    .setName("adjust")
+    .setDescription("Trừ thời gian")
     .addUserOption(o =>
-      o.setName('user')
-        .setDescription('Người bị trừ')
+      o.setName("user")
+        .setDescription("Người bị trừ")
         .setRequired(true)
     )
     .addIntegerOption(o =>
-      o.setName('minutes')
-        .setDescription('Số phút')
+      o.setName("minutes")
+        .setDescription("Số phút")
         .setRequired(true)
+    )
+    .addStringOption(o =>
+      o.setName("type")
+        .setDescription("Loại thời gian")
+        .setRequired(true)
+        .addChoices(
+          { name: "Onduty ngày", value: "day" },
+          { name: "Thực tập tổng", value: "total" }
+        )
     ),
 
   new SlashCommandBuilder()
-    .setName('forceoff')
-    .setDescription('Force off duty')
+    .setName("forced_duty")
+    .setDescription("Cưỡng chế offduty")
     .addUserOption(o =>
-      o.setName('user')
-        .setDescription('Người bị off')
+      o.setName("user")
+        .setDescription("Người bị off")
         .setRequired(true)
     )
-];
 
-// ===== UTIL =====
-function getDate() {
-  return new Date().toISOString().split('T')[0];
-}
+].map(c => c.toJSON());
 
-function getTime() {
-  return new Date().toLocaleTimeString('vi-VN');
-}
+// ===== READY =====
+client.once("ready", async () => {
+  console.log("🔄 Đang load database...");
+  await loadDB();
 
-// ===== EMBED =====
-async function updateEmbed(userId, data) {
-  const channel = await client.channels.fetch(CHANNEL_ID);
-  const member = await channel.guild.members.fetch(userId);
+  const rest = new REST({ version: "10" }).setToken(TOKEN);
 
-  const isIntern = member.roles.cache.has(INTERN_ROLE_ID);
+  try {
+    console.log("🔄 Đang refresh slash command...");
 
-  const embed = new EmbedBuilder()
-    .setTitle("BẢNG ONDUTY")
-    .setColor("#8B0000")
-    .setDescription(`
-**Nhân sự:** <@${userId}>
-**Biển số:** ${data.bienso || "Chưa có"}
-
-**Thời gian:**
-${data.start || "--"} → ${data.end || "--"}
-
-**Ngày:** ${data.date}
-
-**${isIntern ? "Tổng giờ thực tập" : "Tổng thời gian"}:** ${Math.floor(data.total / 60)}h ${data.total % 60}p
-**Trạng thái:** ${data.active ? "ON" : "OFF"}
-`);
-
-  if (data.messageId) {
-    try {
-      const msg = await channel.messages.fetch(data.messageId);
-      await msg.edit({
-        content: `🔎 ONDUTY | <@${userId}> | ${data.bienso || "N/A"}`,
-        embeds: [embed]
-      });
-      return;
-    } catch {}
-  }
-
-  const msg = await channel.send({
-    content: `🔎 ONDUTY | <@${userId}> | ${data.bienso || "N/A"}`,
-    embeds: [embed]
-  });
-
-  await db.ref(`onduty/${userId}/${data.date}`).update({
-    messageId: msg.id
-  });
-}
-
-// ===== START =====
-async function startDuty(user) {
-  const date = getDate();
-  const ref = db.ref(`onduty/${user.id}/${date}`);
-
-  let data = (await ref.get()).val() || {};
-
-  if (data.active) return;
-
-  data.active = true;
-  data.start = getTime();
-  data.lastStart = Date.now();
-  data.total = data.total || 0;
-  data.date = date;
-
-  await ref.set(data);
-  await updateEmbed(user.id, data);
-}
-
-// ===== END =====
-async function endDuty(user) {
-  const date = getDate();
-  const ref = db.ref(`onduty/${user.id}/${date}`);
-
-  let data = (await ref.get()).val();
-  if (!data || !data.active) return;
-
-  const minutes = Math.floor((Date.now() - data.lastStart) / 60000);
-
-  data.total += minutes;
-  data.active = false;
-  data.end = getTime();
-
-  await ref.set(data);
-  await updateEmbed(user.id, data);
-}
-
-// ===== AUTO OFF GTA =====
-client.on('presenceUpdate', async (oldP, newP) => {
-  if (!oldP || !oldP.member) return;
-
-  const wasPlaying = oldP.activities?.some(a => a.name.toLowerCase().includes("gta5vn"));
-  const isPlaying = newP.activities?.some(a => a.name.toLowerCase().includes("gta5vn"));
-
-  if (wasPlaying && !isPlaying) {
-    await endDuty(oldP.member.user);
-  }
-});
-
-// ===== AUTO OFF 00:00 =====
-setInterval(async () => {
-  const now = new Date();
-
-  if (now.getHours() === 0 && now.getMinutes() === 0) {
-    console.log("⏰ Reset ngày mới");
-
-    const snap = await db.ref("onduty").get();
-
-    snap.forEach(userSnap => {
-      const userId = userSnap.key;
-
-      userSnap.forEach(async daySnap => {
-        const data = daySnap.val();
-
-        if (data.active) {
-          await endDuty({ id: userId });
-        }
-      });
-    });
-  }
-}, 60000);
-
-// ===== INTERACTION =====
-client.on('interactionCreate', async (i) => {
-  if (!i.isChatInputCommand()) return;
-
-  if (i.channelId !== CHANNEL_ID) {
-    return i.reply({ content: "❌ Sai kênh!", ephemeral: true });
-  }
-
-  const member = i.member;
-
-  if (i.commandName === 'onduty') {
-    const isPlaying = member.presence?.activities?.some(a =>
-      a.name.toLowerCase().includes("gta5vn")
+    // ❗ clear command cũ
+    await rest.put(
+      Routes.applicationGuildCommands(client.user.id, GUILD_ID),
+      { body: [] }
     );
 
-    if (!isPlaying) {
-      return i.reply({ content: "❌ Vào Game Đi ĐM", ephemeral: true });
-    }
+    // ❗ đăng ký lại command
+    await rest.put(
+      Routes.applicationGuildCommands(client.user.id, GUILD_ID),
+      { body: commands }
+    );
 
-    await startDuty(member.user);
-    return i.reply({ content: "✅ ON DUTY", ephemeral: true });
+    console.log("✅ Slash command đã load xong");
+  } catch (err) {
+    console.error("❌ Lỗi load command:", err);
   }
 
-  if (i.commandName === 'offduty') {
-    await endDuty(member.user);
-    return i.reply({ content: "🛑 OFF DUTY", ephemeral: true });
-  }
-
-  if (i.commandName === 'thaybienso') {
-    const bienso = i.options.getString('bienso');
-    const date = getDate();
-
-    await db.ref(`onduty/${member.user.id}/${date}/bienso`).set(bienso);
-
-    const data = (await db.ref(`onduty/${member.user.id}/${date}`).get()).val();
-    await updateEmbed(member.user.id, data);
-
-    return i.reply({ content: "🚗 Đã cập nhật", ephemeral: true });
-  }
-
-  // ===== ADMIN =====
-  if (!member.roles.cache.has(ADMIN_ROLE_ID)) {
-    return i.reply({ content: "❌ Mày Đéo Có Quyền", ephemeral: true });
-  }
-
-  const target = i.options.getUser('user');
-  const minutes = i.options.getInteger('minutes') || 0;
-  const date = getDate();
-
-  const ref = db.ref(`onduty/${target.id}/${date}`);
-  let data = (await ref.get()).val() || { total: 0, date };
-
-  if (i.commandName === 'penalty') data.total += minutes;
-  if (i.commandName === 'adjust') data.total -= minutes;
-
-  if (i.commandName === 'forceoff') {
-    await endDuty(target);
-    return i.reply({ content: "⚠️ Force OFF", ephemeral: true });
-  }
-
-  await ref.set(data);
-  await updateEmbed(target.id, data);
-
-  i.reply({ content: "✅ Done", ephemeral: true });
+  console.log(`🔥 Bot ready: ${client.user.tag}`);
 });
 
 // ===== LOGIN =====
-client.login(process.env.DISCORD_TOKEN);
+client.login(TOKEN);
