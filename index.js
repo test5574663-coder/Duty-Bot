@@ -38,43 +38,60 @@ const client = new Client({
 
 // ===== COMMANDS =====
 const commands = [
-  new SlashCommandBuilder().setName('onduty').setDescription('Bắt đầu onduty'),
-  new SlashCommandBuilder().setName('offduty').setDescription('Kết thúc onduty'),
+  new SlashCommandBuilder()
+    .setName('onduty')
+    .setDescription('Bắt đầu onduty'),
+
+  new SlashCommandBuilder()
+    .setName('offduty')
+    .setDescription('Kết thúc onduty'),
 
   new SlashCommandBuilder()
     .setName('thaybienso')
     .setDescription('Thay biển số')
-    .addStringOption(o => o.setName('bienso').setRequired(true)),
+    .addStringOption(o =>
+      o.setName('bienso')
+        .setDescription('Biển số xe')
+        .setRequired(true)
+    ),
 
   new SlashCommandBuilder()
     .setName('penalty')
     .setDescription('Cộng giờ')
-    .addUserOption(o => o.setName('user').setRequired(true))
-    .addIntegerOption(o => o.setName('minutes').setRequired(true)),
+    .addUserOption(o =>
+      o.setName('user')
+        .setDescription('Người bị cộng')
+        .setRequired(true)
+    )
+    .addIntegerOption(o =>
+      o.setName('minutes')
+        .setDescription('Số phút')
+        .setRequired(true)
+    ),
 
   new SlashCommandBuilder()
     .setName('adjust')
     .setDescription('Trừ giờ')
-    .addUserOption(o => o.setName('user').setRequired(true))
-    .addIntegerOption(o => o.setName('minutes').setRequired(true)),
+    .addUserOption(o =>
+      o.setName('user')
+        .setDescription('Người bị trừ')
+        .setRequired(true)
+    )
+    .addIntegerOption(o =>
+      o.setName('minutes')
+        .setDescription('Số phút')
+        .setRequired(true)
+    ),
 
   new SlashCommandBuilder()
     .setName('forceoff')
     .setDescription('Force off duty')
-    .addUserOption(o => o.setName('user').setRequired(true))
+    .addUserOption(o =>
+      o.setName('user')
+        .setDescription('Người bị off')
+        .setRequired(true)
+    )
 ];
-
-// ===== REGISTER =====
-client.once('ready', async () => {
-  console.log(`🔥 Bot ready: ${client.user.tag}`);
-
-  const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
-
-  await rest.put(
-    Routes.applicationCommands(client.user.id),
-    { body: commands }
-  );
-});
 
 // ===== UTIL =====
 function getDate() {
