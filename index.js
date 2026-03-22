@@ -250,7 +250,7 @@ client.on("interactionCreate", async i => {
 
     if (i.commandName === "onduty") {
       if (!isPlayingGTA(member))
-        return i.reply({ content: "❌ Phải vào GTA5VN", ephemeral: true });
+        return i.reply({ content: "❌ Vào Game Đi ĐM!", ephemeral: true });
 
       let day = user.days[dayKey];
       if (!day) day = user.days[dayKey] = { plate: "", sessions: [], messageId: null, channelId: null, extra: 0 };
