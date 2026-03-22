@@ -264,8 +264,11 @@ client.on("interactionCreate", async i => {
   const dayKey = dateKeyVN();
 
   if (i.commandName === "onduty") {
-    const playing = (member.presence?.activities || []).some(a => a.name?.toLowerCase().includes("gta"));
-    if (!playing) return i.reply({ content: "Vào GTA đi", ephemeral: true });
+    const playing = (member.presence?.activities || []).some(a => {
+  const name = (a.name || "").toLowerCase().trim();
+  return name === "gta5vn";
+});
+    if (!playing) return i.reply({ content: "Vào Game Đi ĐM", ephemeral: true });
 
     let day = user.days[dayKey];
     if (!day) day = user.days[dayKey] = { plate: "", sessions: [], messageId: null, channelId: null, extra: 0 };
@@ -379,7 +382,10 @@ client.on("presenceUpdate", async (oldP, newP) => {
   const day = user.days[dayKey];
   if (!day) return;
 
-  const playing = (newP.member.presence?.activities || []).some(a => a.name?.toLowerCase().includes("gta"));
+  const playing = (newP.member.presence?.activities || []).some(a => {
+  const name = (a.name || "").toLowerCase().trim();
+  return name === "gta5vn";
+});
 
   if (!playing) {
     const last = day.sessions.find(s => !s.end);
