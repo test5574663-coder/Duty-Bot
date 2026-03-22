@@ -168,39 +168,80 @@ async function sendOrUpdateEmbed(channel, member, user, dayKey, status) {
 const commands = [
   new SlashCommandBuilder()
     .setName("onduty")
-    .addStringOption(o => o.setName("bienso").setRequired(true)),
+    .setDescription("Bắt đầu trực")
+    .addStringOption(o =>
+      o.setName("bienso")
+        .setDescription("Biển số xe")
+        .setRequired(true)
+    ),
 
-  new SlashCommandBuilder().setName("offduty"),
+  new SlashCommandBuilder()
+    .setName("offduty")
+    .setDescription("Kết thúc trực"),
 
   new SlashCommandBuilder()
     .setName("thaybienso")
-    .addStringOption(o => o.setName("bienso").setRequired(true)),
+    .setDescription("Đổi biển số khi đang trực")
+    .addStringOption(o =>
+      o.setName("bienso")
+        .setDescription("Biển số mới")
+        .setRequired(true)
+    ),
 
   new SlashCommandBuilder()
     .setName("penalty")
-    .addUserOption(o => o.setName("user").setRequired(true))
-    .addIntegerOption(o => o.setName("minutes").setRequired(true))
+    .setDescription("Cộng thời gian cho user")
+    .addUserOption(o =>
+      o.setName("user")
+        .setDescription("Người được cộng")
+        .setRequired(true)
+    )
+    .addIntegerOption(o =>
+      o.setName("minutes")
+        .setDescription("Số phút cộng")
+        .setRequired(true)
+    )
     .addStringOption(o =>
-      o.setName("type").setRequired(true).addChoices(
-        { name: "day", value: "day" },
-        { name: "total", value: "total" }
-      )
+      o.setName("type")
+        .setDescription("Loại cộng")
+        .setRequired(true)
+        .addChoices(
+          { name: "Onduty ngày", value: "day" },
+          { name: "Tổng thực tập", value: "total" }
+        )
     ),
 
   new SlashCommandBuilder()
     .setName("adjust")
-    .addUserOption(o => o.setName("user").setRequired(true))
-    .addIntegerOption(o => o.setName("minutes").setRequired(true))
+    .setDescription("Trừ thời gian của user")
+    .addUserOption(o =>
+      o.setName("user")
+        .setDescription("Người bị trừ")
+        .setRequired(true)
+    )
+    .addIntegerOption(o =>
+      o.setName("minutes")
+        .setDescription("Số phút trừ")
+        .setRequired(true)
+    )
     .addStringOption(o =>
-      o.setName("type").setRequired(true).addChoices(
-        { name: "day", value: "day" },
-        { name: "total", value: "total" }
-      )
+      o.setName("type")
+        .setDescription("Loại trừ")
+        .setRequired(true)
+        .addChoices(
+          { name: "Onduty ngày", value: "day" },
+          { name: "Tổng thực tập", value: "total" }
+        )
     ),
 
   new SlashCommandBuilder()
     .setName("forced_duty")
-    .addUserOption(o => o.setName("user").setRequired(true))
+    .setDescription("Cưỡng chế offduty user")
+    .addUserOption(o =>
+      o.setName("user")
+        .setDescription("User cần off")
+        .setRequired(true)
+    )
 
 ].map(c => c.toJSON());
 
