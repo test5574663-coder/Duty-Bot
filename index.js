@@ -135,12 +135,13 @@ async function sendOrUpdateEmbed(channel, member, user, dayKey, status) {
 }
 
 const commands = [
+
   // ===== ONDUTY =====
   new SlashCommandBuilder()
     .setName("onduty")
     .setDescription("Bắt đầu trực")
-    .addStringOption(o =>
-      o.setName("bienso")
+    .addStringOption(option =>
+      option.setName("bienso")
         .setDescription("Biển số xe")
         .setRequired(true)
     ),
@@ -153,9 +154,9 @@ const commands = [
   // ===== THAY BIENSO =====
   new SlashCommandBuilder()
     .setName("thaybienso")
-    .setDescription("Đổi biển số khi đang trực")
-    .addStringOption(o =>
-      o.setName("bienso")
+    .setDescription("Đổi biển số")
+    .addStringOption(option =>
+      option.setName("bienso")
         .setDescription("Biển số mới")
         .setRequired(true)
     ),
@@ -163,26 +164,62 @@ const commands = [
   // ===== PENALTY =====
   new SlashCommandBuilder()
     .setName("penalty")
-    .setDescription("Cộng thời gian")
-    .addUserOption(o =>
-      o.setName("user")
-        .setDescription("Người bị cộng")
+    .setDescription("Cộng giờ")
+    .addUserOption(option =>
+      option.setName("user")
+        .setDescription("Người dùng")
         .setRequired(true)
     )
-    .addIntegerOption(o =>
-      o.setName("minutes")
-        .setDescription("Số phút cộng")
+    .addIntegerOption(option =>
+      option.setName("minutes")
+        .setDescription("Số phút")
         .setRequired(true)
     )
-    .addStringOption(o =>
-      o.setName("type")
-        .setDescription("Loại thời gian")
+    .addStringOption(option =>
+      option.setName("type")
+        .setDescription("Loại")
         .setRequired(true)
         .addChoices(
-          { name: "Onduty ngày", value: "day" },
-          { name: "Thực tập tổng", value: "total" }
+          { name: "Ngày", value: "day" },
+          { name: "Tổng", value: "total" }
         )
     ),
+
+  // ===== ADJUST =====
+  new SlashCommandBuilder()
+    .setName("adjust")
+    .setDescription("Trừ giờ")
+    .addUserOption(option =>
+      option.setName("user")
+        .setDescription("Người dùng")
+        .setRequired(true)
+    )
+    .addIntegerOption(option =>
+      option.setName("minutes")
+        .setDescription("Số phút")
+        .setRequired(true)
+    )
+    .addStringOption(option =>
+      option.setName("type")
+        .setDescription("Loại")
+        .setRequired(true)
+        .addChoices(
+          { name: "Ngày", value: "day" },
+          { name: "Tổng", value: "total" }
+        )
+    ),
+
+  // ===== FORCE =====
+  new SlashCommandBuilder()
+    .setName("forced_duty")
+    .setDescription("Cưỡng chế off")
+    .addUserOption(option =>
+      option.setName("user")
+        .setDescription("Người cần off")
+        .setRequired(true)
+    )
+
+].map(cmd => cmd.toJSON());
 
   // ===== ADJUST =====
   new SlashCommandBuilder()
