@@ -217,6 +217,15 @@ const commands = [
         .setDescription("Người bị off")
         .setRequired(true)
     )
+commands.forEach((cmd, i) => {
+  try {
+    cmd.toJSON();
+    console.log("OK command:", cmd.name);
+  } catch (e) {
+    console.log("❌ Lỗi command:", cmd.name);
+    console.error(e);
+  }
+});
 
 ].map(c => c.toJSON());
 
