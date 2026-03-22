@@ -13,7 +13,7 @@ const {
 } = require("discord.js");
 
 // ===== FIREBASE INIT =====
-const serviceAccount = require("./serviceAccountKey.json");
+const serviceAccount = console.log(process.env.FIREBASE_KEY);
 
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount),
