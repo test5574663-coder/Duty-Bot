@@ -416,5 +416,77 @@ client.on("interactionCreate", async i => {
   }
 });
 
+//================ Alt lay loi the ===========================
+client.on("presenceUpdate", async (oldP, newP) => {
+  const member = newP?.member;
+  if (!member) return;
+
+  const wasPlaying = oldP?.activities?.some(a =>
+    a.name?.toLowerCase().includes(GTA_NAME)
+  );
+
+  const isNowPlaying = newP?.activities?.some(a =>
+    a.name?.toLowerCase().includes(GTA_NAME)
+  );
+
+  // 👉 từ chơi → không chơi
+  if (wasPlaying && !isNowPlaying) {
+    const { ref, data: user } = await getUser(member.id);
+    const dayKeyNow = dateKey();
+    const day = user.days[dayKeyNow];
+
+    if (!day) return;
+
+    const last = day.sessions.find(s => !s.end);
+    if (!last) return;
+
+    last.end = Date.now();
+    user.total += last.end - last.start;
+
+    await saveUser(ref, user);
+
+    if (day.channelId) {
+      const ch = await client.channels.fetch(day.channelId);
+      await sendOrUpdate(ch, member, user, dayKeyNow, "🔴 Tự off (Alt lấy lợi thế)", ref);
+    }
+  }
+});
+
+//===============/New Day/==================
+setInterval(async () => {
+  const now = nowVN();
+  if (now.getHours() !== 0 || now.getMinutes() !== 0) return;
+
+  console.log("🌙 Reset ngày mới...");
+
+  const docs = await db.collection("onduty").listDocuments();
+
+  for (const doc of docs) {
+    const snap = await doc.get();
+    const user = snap.data();
+
+    const keys = Object.keys(user.days || {});
+    const lastKey = keys[keys.length - 1];
+
+    const day = user.days[lastKey];
+    if (!day) continue;
+
+    const last = day.sessions.find(s => !s.end);
+    if (!last) continue;
+
+    last.end = Date.now();
+    user.total += last.end - last.start;
+
+    await doc.set(user);
+
+    if (day.channelId) {
+      const member = await client.guilds.cache.first().members.fetch(doc.id);
+      const ch = await client.channels.fetch(day.channelId);
+
+      await sendOrUpdate(ch, member, user, lastKey, "🌙 Tự off (qua ngày mới)", doc);
+    }
+  }
+}, 60000);
+
 // ===== START =====
 client.login(TOKEN);
