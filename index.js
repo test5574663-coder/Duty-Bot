@@ -125,7 +125,9 @@ ${timeline || "Chưa có dữ liệu"}
 
 **Tổng Thời Gian Onduty:** ${diffText(total)}
 
-**Thực Tập:** ${diffText(user.total)} / 60h
+${member.roles.cache.has(ROLE_INTERN)
+  ? `**Thực Tập:** ${diffText(user.total)} / 60h`
+  : ""}
 
 **Trạng Thái Hoạt Động:** ${status || "Không có"}`
     )
