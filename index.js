@@ -11,11 +11,11 @@ const {
 const admin = require("firebase-admin");
 
 // ===== FIREBASE =====
-const serviceAccount = JSON.parse(process.env.FIREBASE_JSON);
+const serviceAccount = require("./firebase.json");
 
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount),
-  databaseURL: process.env.FIREBASE_URL
+  databaseURL: process.env.FIREBASE_URLS
 });
 
 const db = admin.firestore();
